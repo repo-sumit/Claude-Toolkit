@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Toolkit",
+  "version": "0.5.0",
+  "description": "A native-feeling productivity layer for claude.ai: a slim usage strip docked into the composer card, a latest-reply Export action, model advisor, 20 quick tools, prompt palette, and a token map. 100% local.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "claude-toolkit@example.com",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["storage"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Claude Toolkit",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "css": ["src/styles.css"],
+      "js": [
+        "src/content/constants.js",
+        "src/content/storage.js",
+        "src/content/a11y.js",
+        "src/content/bridge-client.js",
+        "src/vendor/o200k_base.js",
+        "src/content/tokenizer.js",
+        "src/content/conversation.js",
+        "src/content/usage.js",
+        "src/content/export.js",
+        "src/content/model.js",
+        "src/content/popover.js",
+        "src/content/tools.js",
+        "src/content/composer.js",
+        "src/content/bottom-bar.js",
+        "src/content/inline-export.js",
+        "src/content/panel.js",
+        "src/content/main.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected/bridge.js"],
+      "matches": ["https://claude.ai/*"]
+    }
+  ]
+}
