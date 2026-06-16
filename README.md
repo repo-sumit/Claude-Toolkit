@@ -4,7 +4,18 @@ A native-feeling productivity layer for `claude.ai`, in one extension. Everythin
 runs locally — it reads Claude's *own* API traffic in your browser, keeps settings
 in local browser storage, and sends nothing anywhere.
 
-## What's inside (v0.5 — native refinement)
+## What's inside (v0.6 — Claude-native redesign)
+
+This release implements the **Claude Toolkit Redesign** handoff from Claude
+Design: a warm, claude.ai-native dark shell (`#262624`/`#211f1d`/`#2a2926`
+surfaces, terracotta `#d97757` accent, green→amber→red usage levels) expressed
+as a namespaced token system in `src/styles.css`. The floating edge "TOOLS" tab
+is gone — the panel now opens from the strip; the model suggestion is a
+clickable **pill** (accent star + tier) you can apply in one click; Settings use
+iOS-style **toggle switches**; the Overview gains a **Model advisor** card; and
+the Quick Tools launcher has a keyboard-hint footer. All chrome is SVG (no
+emoji), light/dark both supported.
+
 
 **Composer status strip, docked into the input card.** A slim status line is
 inserted into Claude's own layout *right below the composer card* (after the

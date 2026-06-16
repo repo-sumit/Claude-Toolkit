@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claude Toolkit",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A native-feeling productivity layer for claude.ai: a slim usage strip docked into the composer card, a latest-reply Export action, model advisor, 20 quick tools, prompt palette, and a token map. 100% local.",
   "browser_specific_settings": {
     "gecko": {

@@ -39,8 +39,11 @@
 
 	// ---- SVG icon set (Claude-native: 24-grid stroke icons, currentColor) -----
 	const ICON_PATHS = {
-		sparkles: '<path d="M12 4l1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6z"/><path d="M19 15l.7 1.9L21.5 17.5l-1.8.6L19 20l-.6-1.9L16.5 17.5l1.9-.6z"/>',
-		panel: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>',
+		// Two-sparkle "tools" mark (matches the redesign's Quick Tools trigger).
+		sparkles: '<path d="m12 4 1.5 4.5L18 10l-4.5 1.5L12 16l-1.5-4.5L6 10l4.5-1.5z"/><path d="M18.5 15.5 19 17l1.5.5L19 18l-.5 1.5L18 18l-1.5-.5L18 17z"/>',
+		// Single 4-point star used as the accent glyph on the model-suggestion pill.
+		star: '<path d="m12 3 2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>',
+		panel: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/>',
 		share: '<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/>',
 		copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 		download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
@@ -49,8 +52,13 @@
 		x: '<path d="M18 6 6 18M6 6l12 12"/>',
 		chevron: '<path d="m6 9 6 6 6-6"/>',
 		dots: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
-		refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>',
-		info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>'
+		refresh: '<path d="M20 11a8 8 0 1 0-2 5.5M20 5v6h-6"/>',
+		info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
+		search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/>',
+		pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+		trash: '<path d="M5 7h14M9 7V5h6v2m-8 0 1 13h8l1-13"/>',
+		plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+		exportarrow: '<path d="M4 12h13m0 0-5-5m5 5-5 5"/><path d="M20 4v16"/>'
 	};
 	CT.icon = (name, size = 16) =>
 		`<svg class="ct-ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
@@ -143,7 +151,7 @@
 	};
 	CT.u = u;
 
-	CT.state = CT.state || { conversation: null, map: null, usage: null };
+	CT.state = CT.state || { conversation: null, map: null, usage: null, suggestion: null };
 	CT.theme = CT.theme || { dark: false };
 	CT.ui = CT.ui || { panelOpen: false };
 })();

@@ -2,7 +2,7 @@
 	'use strict';
 
 	const CT = (globalThis.ClaudeToolkit = globalThis.ClaudeToolkit || {});
-	const { fmtTokens, heatColor, esc: escapeHtml, makeId, fmtCountdown, fmtClock } = CT.u;
+	const { fmtTokens, esc: escapeHtml, makeId, fmtCountdown, fmtClock } = CT.u;
 
 	const TABS = [
 		['overview', 'Overview'],
@@ -10,7 +10,7 @@
 		['tools', 'Tools'],
 		['prompts', 'Prompts'],
 		['export', 'Export'],
-		['settings', '⚙ Settings']
+		['settings', 'Settings']
 	];
 
 	class Panel {
@@ -35,15 +35,8 @@
 			if (this._built) return;
 			this._built = true;
 
-			const toggle = document.createElement('button');
-			toggle.className = 'ct-toggle';
-			toggle.title = 'Claude Toolkit';
-			toggle.setAttribute('aria-label', 'Open Claude Toolkit panel');
-			toggle.setAttribute('aria-expanded', 'false');
-			CT.a11y.decorate(toggle);
-			toggle.innerHTML = `<span class="ct-toggle__icon" aria-hidden="true">${CT.icon('panel', 16)}</span><span class="ct-toggle__label">Tools</span>`;
-			toggle.addEventListener('click', () => this.setOpen(!this.open));
-
+			// No floating edge tab in the redesign — the panel opens from the
+			// status strip's panel icon (and Ctrl/Cmd+Shift+U / +E).
 			const panel = document.createElement('aside');
 			panel.className = 'ct-panel';
 			panel.setAttribute('role', 'dialog');
@@ -51,7 +44,7 @@
 			CT.a11y.decorate(panel);
 
 			const tabBtns = TABS.map(
-				([k, label]) => `<button class="ct-tab" role="tab" data-tab="${k}" aria-selected="false" aria-label="${escapeHtml(label.replace('⚙ ', ''))} tab">${escapeHtml(label)}</button>`
+				([k, label]) => `<button class="ct-tab" role="tab" data-tab="${k}" aria-selected="false" aria-label="${escapeHtml(label)} tab">${escapeHtml(label)}</button>`
 			).join('');
 			panel.innerHTML = `
 				<div class="ct-head">
@@ -85,9 +78,7 @@
 				}
 			});
 
-			document.body.appendChild(toggle);
 			document.body.appendChild(panel);
-			this.toggle = toggle;
 			this.panel = panel;
 			this.panes = {};
 			panel.querySelectorAll('.ct-pane').forEach((p) => (this.panes[p.dataset.pane] = p));
@@ -108,15 +99,24 @@
 		setOpen(v) {
 			this.open = v;
 			this.panel.classList.toggle('ct-panel--open', v);
-			this.toggle.classList.toggle('ct-toggle--hidden', v);
-			this.toggle.setAttribute('aria-expanded', v ? 'true' : 'false');
 			if (v) {
+				// Remember what had focus so we can restore it on close (the trigger
+				// lives in the strip, which may re-render, so track the node itself).
+				this._prevFocus = document.activeElement;
 				this._releaseTrap = CT.a11y.trapFocus(this.panel);
 				this.panel.querySelector(`.ct-tab[data-tab="${this.tab}"]`)?.focus();
 			} else {
 				this._releaseTrap?.();
 				this._releaseTrap = null;
-				this.toggle.focus();
+				const prev = this._prevFocus;
+				this._prevFocus = null;
+				if (prev && prev !== document.body && document.contains(prev)) {
+					try {
+						prev.focus({ preventScroll: true });
+					} catch {
+						prev.focus();
+					}
+				}
 			}
 			if (this.onToggle) this.onToggle(v);
 		}
@@ -177,23 +177,42 @@
 			const cu = this.cachedUntil;
 			const cacheVal = !cu ? '—' : Date.now() >= cu ? 'expired' : fmtClock(cu);
 			const f = this.usage?.five_hour, s7 = this.usage?.seven_day;
+			const sug = CT.state.suggestion || { model: 'Sonnet', confidence: 0.5, reason: 'Balanced default — type a draft for a tailored suggestion.' };
+			const matchPct = Math.round((sug.confidence ?? 0.5) * 100);
 			pane.innerHTML = `
+				<div class="ct-section">Usage</div>
 				<div class="ct-ovgrid">
+					${card('Session (5h)', f?.utilization ?? null, `<span data-ov="five">${f?.resets_at ? `resets in ${fmtCountdown(Date.parse(f.resets_at))}` : 'usage not loaded yet'}</span>`)}
+					${card('Weekly (7d)', s7?.utilization ?? null, `<span data-ov="seven">${s7?.resets_at ? `resets in ${fmtCountdown(Date.parse(s7.resets_at))}` : 'usage not loaded yet'}</span>`)}
 					${card('Context window', ctxPct, m?.count ? `<span data-ov="ctx">${CT.tokenizer.isApproximate() ? '~' : ''}${fmtTokens(m.total)} / ${fmtTokens(CT.CONST.CONTEXT_LIMIT_TOKENS)} tok · ${m.count} msgs</span>` : 'open a conversation')}
 					<div class="ct-card">
 						<div class="ct-card__name">Prompt cache</div>
 						<div class="ct-card__val" data-ov="cache">${cacheVal}</div>
 						<div class="ct-hint">~5 min after each Claude reply</div>
 					</div>
-					${card('Session (5h)', f?.utilization ?? null, `<span data-ov="five">${f?.resets_at ? `resets in ${fmtCountdown(Date.parse(f.resets_at))}` : ''}</span>`)}
-					${card('Weekly (7d)', s7?.utilization ?? null, `<span data-ov="seven">${s7?.resets_at ? `resets in ${fmtCountdown(Date.parse(s7.resets_at))}` : ''}</span>`)}
 				</div>
+
+				<div class="ct-section">Model advisor</div>
+				<div class="ct-advisor">
+					<div class="ct-advisor__main">
+						<div class="ct-advisor__top"><span class="ct-advisor__model" data-adv="model">${escapeHtml(sug.model)}</span><span class="ct-advisor__match" data-adv="match">${matchPct}% match</span></div>
+						<div class="ct-advisor__reason" data-adv="reason">${escapeHtml(sug.reason)}</div>
+					</div>
+					<button class="ct-btn ct-btn--primary" data-applymodel style="flex:none;min-height:34px;padding:0 16px;">Apply</button>
+				</div>
+
+				<div class="ct-section">Quick actions</div>
 				<div class="ct-btns ct-btns--row">
-					<button class="ct-btn" data-go="map">Open map</button>
-					<button class="ct-btn" data-go="tools">Quick tools</button>
-					<button class="ct-btn" data-go="export">Export</button>
+					<button class="ct-btn ct-btn--center" data-go="map">Open Map</button>
+					<button class="ct-btn ct-btn--center" data-go="tools">Quick Tools</button>
+					<button class="ct-btn ct-btn--center" data-go="export">Export</button>
 				</div>`;
 			pane.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => this.setTab(b.getAttribute('data-go'))));
+			pane.querySelector('[data-applymodel]')?.addEventListener('click', async () => {
+				const s = CT.state.suggestion || { model: 'Sonnet' };
+				const ok = await CT.model.applyModel(s.model);
+				CT.model.toast(ok ? `Switched to ${s.model}` : `Couldn’t switch automatically — pick ${s.model} manually`);
+			});
 		}
 
 		// ================= MAP =================
@@ -207,13 +226,17 @@
 			}
 			const approx = CT.tokenizer.isApproximate();
 			const pct = Math.min(100, (m.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100);
+			const lvl = CT.usage.level(pct) || { key: 'healthy' };
 			pane.innerHTML = `
 				<div class="ct-meter">
 					<div class="ct-meter__row"><span class="ct-meter__text">${approx ? '~' : ''}${fmtTokens(m.total)} / ${fmtTokens(CT.CONST.CONTEXT_LIMIT_TOKENS)} tokens</span><span class="ct-meter__pct">${pct.toFixed(pct < 10 ? 1 : 0)}%</span></div>
-					<div class="ct-bar-track"><div class="ct-bar-fill" style="width:${pct}%;background:${heatColor(m.total / CT.CONST.CONTEXT_LIMIT_TOKENS)}"></div></div>
+					<div class="ct-bar-track"><div class="ct-bar-fill ct-lvlbg-${lvl.key}" style="width:${pct}%"></div></div>
 					<div class="ct-hint">${m.count} messages on this branch${approx ? ' · approx. counts' : ''} · times shown per message · click a row to jump</div>
 				</div>
 				<div class="ct-list"></div>`;
+			// Per-row token heatmap as a terracotta-accent opacity ramp (matches the
+			// redesign), so weight reads as intensity rather than a green→red hue.
+			const heatAccent = (r) => `rgba(217, 119, 87, ${(0.18 + Math.max(0, Math.min(1, r)) * 0.52).toFixed(2)})`;
 			const list = pane.querySelector('.ct-list');
 			const frag = document.createDocumentFragment();
 			for (const it of m.items) {
@@ -225,8 +248,8 @@
 				row.setAttribute('aria-label', `Jump to message ${it.index + 1} from ${who}${it.timeLabel ? `, sent ${it.timeLabel}` : ''}, ${it.tokens.toLocaleString()} tokens`);
 				const bar = document.createElement('div');
 				bar.className = 'ct-row__bar';
-				bar.style.width = `${Math.max(4, ratio * 100)}%`;
-				bar.style.background = heatColor(ratio);
+				bar.style.width = `${Math.max(6, ratio * 100)}%`;
+				bar.style.background = heatAccent(ratio);
 				const dot = document.createElement('span');
 				dot.className = `ct-row__dot ct-row__dot--${it.sender}`;
 				const label = document.createElement('span');
@@ -332,9 +355,9 @@
 								<span class="ct-prompt__kw">/${escapeHtml(p.keyword || '')}</span>
 							</div>
 							<div class="ct-prompt__actions">
-								<button class="ct-iconbtn" data-edit="${p.id}" title="Edit" aria-label="Edit ${escapeHtml(p.name)}">✎</button>
-								<button class="ct-iconbtn" data-dup="${p.id}" title="Duplicate" aria-label="Duplicate ${escapeHtml(p.name)}">⧉</button>
-								<button class="ct-iconbtn" data-del="${p.id}" title="Delete" aria-label="Delete ${escapeHtml(p.name)}">🗑</button>
+								<button class="ct-iconbtn" data-edit="${p.id}" title="Edit" aria-label="Edit ${escapeHtml(p.name)}">${CT.icon('pencil', 15)}</button>
+								<button class="ct-iconbtn" data-dup="${p.id}" title="Duplicate" aria-label="Duplicate ${escapeHtml(p.name)}">${CT.icon('copy', 15)}</button>
+								<button class="ct-iconbtn" data-del="${p.id}" title="Delete" aria-label="Delete ${escapeHtml(p.name)}">${CT.icon('trash', 15)}</button>
 							</div>
 						</div>`).join('')
 				)
@@ -576,39 +599,43 @@
 			const pane = this.panes.settings;
 			if (!pane) return;
 			const s = this.settings || {};
+			// iOS-style toggle: a hidden, fully-accessible checkbox drives a styled
+			// switch span via :checked ~ .ct-switch (keyboard + SR friendly).
 			const toggle = (key, label, sub) => `
 				<label class="ct-setting">
-					<span><span class="ct-setting__label">${label}</span>${sub ? `<span class="ct-setting__sub">${sub}</span>` : ''}</span>
-					<input type="checkbox" data-set="${key}" ${s[key] ? 'checked' : ''} aria-label="${escapeHtml(label)}">
+					<span class="ct-setting__text"><span class="ct-setting__label">${escapeHtml(label)}</span>${sub ? `<span class="ct-setting__sub">${escapeHtml(sub)}</span>` : ''}</span>
+					<input type="checkbox" class="ct-switch__input ct-sr-only" data-set="${key}" ${s[key] ? 'checked' : ''} aria-label="${escapeHtml(label)}">
+					<span class="ct-switch" aria-hidden="true"><i></i></span>
 				</label>`;
 			const cats = ['All', ...new Set((s.prompts || []).map((p) => p.category || 'General'))];
 			pane.innerHTML = `
-				<div class="ct-toollist__cat">Bottom bar</div>
-				${toggle('showBottomBar', 'Show bottom status strip', 'Thin live-metrics strip near the composer')}
-				${toggle('bottomBarCompact', 'Compact labels', 'Abbreviated labels (5h / 7d / Ctx) to save space')}
-				${toggle('showModelSuggestion', 'Show model suggestion', 'Suggested Haiku / Sonnet / Opus for your draft')}
+				<div class="ct-section">Status strip</div>
+				${toggle('showBottomBar', 'Show status strip', 'Docked under the composer')}
+				${toggle('bottomBarCompact', 'Compact labels', 'Abbreviated labels (5h / 7d) to save space')}
+				${toggle('showModelSuggestion', 'Show model suggestion', 'Suggested Haiku / Sonnet / Opus')}
 				${toggle('showCacheCountdown', 'Show cache countdown', 'Only while the prompt cache is active')}
-				${toggle('showInlineExport', 'Inline export button', 'Small Export button at the bottom of the last reply')}
-				<div class="ct-toollist__cat">Features</div>
-				${toggle('enableQuickTools', 'Quick Tools', 'Tool launcher in the bar and Ctrl/Cmd+Shift+K')}
-				${toggle('enablePalette', 'Slash-command prompt palette', 'Type / in the composer to insert prompts')}
-				${toggle('showAdvisor', 'Model advisor chip', 'Live token meter + suggested model above the composer')}
-				${toggle('autoApplyModel', 'Auto-apply suggested model', 'Experimental — drives the claude.ai model picker')}
-				<div class="ct-toollist__cat">Usage warnings</div>
-				${toggle('usageWarnings', 'Show usage warnings', 'Toasts + compact badges in the bar')}
+				${toggle('showInlineExport', 'Inline export on last reply', 'Export action in the reply footer')}
+				${toggle('showReplyMeta', 'Show reply token estimate', 'Subtle ≈ token count next to Export')}
+				<div class="ct-section">Features</div>
+				${toggle('enableQuickTools', 'Quick Tools', 'Launcher + Ctrl/Cmd+Shift+K')}
+				${toggle('enablePalette', 'Slash prompt palette', 'Type / in the composer')}
+				${toggle('showAdvisor', 'Model advisor chip', 'Live token meter above the composer')}
+				${toggle('autoApplyModel', 'Auto-apply suggested model', 'Experimental — drives the model picker')}
+				<div class="ct-section">Usage warnings</div>
+				${toggle('usageWarnings', 'Show usage warnings', 'Toasts as you approach a limit')}
 				${toggle('warningThreshold70', 'Warn at 70%', '')}
 				${toggle('warningThreshold85', 'Warn at 85%', '')}
 				${toggle('warningThreshold95', 'Warn at 95%', '')}
-				<div class="ct-toollist__cat">Accessibility</div>
-				${toggle('reducedMotion', 'Reduce motion', 'Also follows your system preference automatically')}
-				${toggle('highContrast', 'High contrast', 'Stronger borders and focus outlines')}
-				<div class="ct-toollist__cat">Prompts</div>
-				<label class="ct-setting"><span><span class="ct-setting__label">Default prompt category</span><span class="ct-setting__sub">Pre-selected in pickers</span></span>
+				<div class="ct-section">Accessibility</div>
+				${toggle('reducedMotion', 'Reduce motion', 'Also follows your system setting')}
+				${toggle('highContrast', 'High contrast', 'Stronger borders and focus rings')}
+				<div class="ct-section">Prompts</div>
+				<label class="ct-setting"><span class="ct-setting__text"><span class="ct-setting__label">Default prompt category</span><span class="ct-setting__sub">Pre-selected in pickers</span></span>
 					<select class="ct-input ct-input--inline" data-setval="defaultPromptCategory" aria-label="Default prompt category">
 						${cats.map((c) => `<option ${s.defaultPromptCategory === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
 					</select>
 				</label>
-				<div class="ct-hint ct-settingsfoot">Settings + prompts are stored locally in your browser. Nothing leaves the page.</div>`;
+				<div class="ct-hint ct-settingsfoot">Settings and prompts are stored locally in your browser. Nothing leaves the page.</div>`;
 			pane.querySelectorAll('[data-set]').forEach((cb) => cb.addEventListener('change', () => this._commitSettings({ [cb.getAttribute('data-set')]: cb.checked })));
 			pane.querySelectorAll('[data-setval]').forEach((sel) => sel.addEventListener('change', () => this._commitSettings({ [sel.getAttribute('data-setval')]: sel.value })));
 		}
@@ -634,6 +661,16 @@
 				if (five && this.usageResetMs.five) five.textContent = `resets in ${fmtCountdown(this.usageResetMs.five)}`;
 				const seven = ov.querySelector('[data-ov="seven"]');
 				if (seven && this.usageResetMs.seven) seven.textContent = `resets in ${fmtCountdown(this.usageResetMs.seven)}`;
+				// Keep the model-advisor card in sync with the live draft suggestion.
+				const adv = CT.state.suggestion;
+				if (adv) {
+					const mEl = ov.querySelector('[data-adv="model"]');
+					if (mEl && mEl.textContent !== adv.model) mEl.textContent = adv.model;
+					const matchEl = ov.querySelector('[data-adv="match"]');
+					if (matchEl) matchEl.textContent = `${Math.round((adv.confidence ?? 0.5) * 100)}% match`;
+					const rEl = ov.querySelector('[data-adv="reason"]');
+					if (rEl && rEl.textContent !== adv.reason) rEl.textContent = adv.reason;
+				}
 			}
 		}
 	}

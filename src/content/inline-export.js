@@ -65,7 +65,7 @@
 			btn.setAttribute('aria-haspopup', 'dialog');
 			btn.setAttribute('aria-expanded', 'false');
 			btn.setAttribute('aria-label', 'Export this reply');
-			btn.innerHTML = `${CT.icon('share', 15)}<span class="ct-replyx__lbl">Export</span>`;
+			btn.innerHTML = `${CT.icon('exportarrow', 15)}<span class="ct-replyx__lbl">Export</span>`;
 			btn.addEventListener('click', () => this._toggleMenu());
 
 			cluster.append(meta, btn);

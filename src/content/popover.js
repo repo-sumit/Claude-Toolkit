@@ -62,6 +62,16 @@
 		const body = document.createElement('div');
 		body.className = 'ct-popover__body';
 		pop.appendChild(body);
+
+		// Optional non-scrolling footer (e.g., keyboard hints). String = static
+		// author HTML; function = imperative builder.
+		if (opts.footer) {
+			const foot = document.createElement('div');
+			foot.className = 'ct-popover__foot';
+			if (typeof opts.footer === 'function') opts.footer(foot);
+			else foot.innerHTML = opts.footer;
+			pop.appendChild(foot);
+		}
 		document.body.appendChild(pop);
 
 		const place = () => {

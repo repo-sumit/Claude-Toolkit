@@ -11,6 +11,18 @@
 		seven: 'Rolling 7-day usage (from claude.ai\u2019s usage API).'
 	};
 
+	// Shown on the model pill before the user has typed a draft (the design keeps
+	// a suggestion visible at all times). Real, tailored advice replaces it the
+	// moment there's composer text.
+	const NEUTRAL_SUGGESTION = Object.freeze({
+		tier: 'sonnet',
+		model: 'Sonnet',
+		confidence: 0.5,
+		reason: 'Balanced default \u2014 start typing for a tailored suggestion.',
+		signals: [],
+		detectedAvailableModelName: null
+	});
+
 	// A slim status strip docked into Claude's own DOM, right after the composer
 	// card (`chat-input-grid-container`). Because it lives in the normal flow
 	// below the input — not as a fixed overlay — it can never cover the model
@@ -37,27 +49,39 @@
 			bar.setAttribute('role', 'group');
 			bar.setAttribute('aria-label', 'Claude usage');
 			CT.a11y.decorate(bar);
+			// label · rail · value per metric, then a clickable model-suggestion
+			// pill, a divider, and the Tools + panel icons. Model lives OUTSIDE the
+			// usage button so it can be applied with one click.
 			bar.innerHTML = `
 				<button class="ct-strip__usage" data-act="usage" aria-haspopup="dialog" aria-expanded="false" aria-label="Usage details">
-					<span class="ct-seg" data-seg="five"><span class="ct-seg__txt"></span><span class="ct-rail"><i></i></span></span>
-					<span class="ct-seg__div" aria-hidden="true"></span>
-					<span class="ct-seg" data-seg="seven"><span class="ct-seg__txt"></span><span class="ct-rail"><i></i></span></span>
+					<span class="ct-seg" data-seg="five"><span class="ct-seg__lab"></span><span class="ct-rail"><i></i></span><span class="ct-seg__txt"></span></span>
+					<span class="ct-seg__div" data-div="seven" aria-hidden="true"></span>
+					<span class="ct-seg" data-seg="seven"><span class="ct-seg__lab"></span><span class="ct-rail"><i></i></span><span class="ct-seg__txt"></span></span>
 					<span class="ct-seg__div" data-div="ctx" aria-hidden="true"></span>
-					<span class="ct-seg ct-seg--text" data-seg="ctx"><span class="ct-seg__txt"></span></span>
+					<span class="ct-seg" data-seg="ctx"><span class="ct-seg__lab"></span><span class="ct-seg__txt"></span></span>
 					<span class="ct-seg__div" data-div="cache" aria-hidden="true"></span>
-					<span class="ct-seg ct-seg--text" data-seg="cache" hidden><span class="ct-seg__txt"></span></span>
-					<span class="ct-seg__div" data-div="model" aria-hidden="true"></span>
-					<span class="ct-seg ct-seg--text ct-seg--model" data-seg="model" hidden><span class="ct-seg__txt"></span></span>
+					<span class="ct-seg" data-seg="cache" hidden><span class="ct-seg__lab"></span><span class="ct-seg__txt"></span></span>
+					<span class="ct-strip__spacer"></span>
 				</button>
+				<button class="ct-strip__model" data-act="apply-model" hidden aria-label="Apply suggested model" title="">${CT.icon('star', 13)}<span class="ct-strip__model-lbl"></span></button>
+				<span class="ct-seg__div" aria-hidden="true"></span>
 				<button class="ct-strip__icon" data-act="tools" aria-haspopup="dialog" aria-expanded="false" aria-label="Quick Tools" title="Quick Tools (Ctrl/Cmd+Shift+K)">${CT.icon('sparkles')}</button>
 				<button class="ct-strip__icon" data-act="panel" aria-label="Open Claude Toolkit panel" title="Open panel">${CT.icon('panel')}</button>`;
 			this.bar = bar; // detached until attach()
 			this.usageBtn = bar.querySelector('[data-act="usage"]');
 			this.toolsBtn = bar.querySelector('[data-act="tools"]');
+			this.modelPill = bar.querySelector('[data-act="apply-model"]');
 
 			this.usageBtn.addEventListener('click', () => this.toggleUsagePopover());
 			this.toolsBtn.addEventListener('click', () => {
 				CT.popover.toggle('tools', () => CT.tools.openLauncher(this.toolsBtn.getBoundingClientRect(), this.toolsBtn));
+			});
+			this.modelPill.addEventListener('click', async (e) => {
+				e.stopPropagation();
+				const sug = this._suggestion;
+				if (!sug) return;
+				const ok = await CT.model.applyModel(sug.model);
+				CT.model.toast(ok ? `Switched to ${sug.model}` : `Couldn’t switch automatically — pick ${sug.model} manually`);
 			});
 			bar.querySelector('[data-act="panel"]').addEventListener('click', () => this.onOpenPanel());
 
@@ -83,6 +107,7 @@
 
 			this.attach();
 			this.render();
+			this._updateModel(); // seed the model pill so it shows on first load
 		}
 
 		setSettings(s) {
@@ -92,30 +117,35 @@
 		}
 
 		// ---- native docking ----
+		// Resolve the element to dock the strip AFTER. We must always land below
+		// the *whole* composer card so the strip can never sit among Claude's own
+		// model/effort/mic/send controls — so resolution is fail-safe: if we can't
+		// confidently find the input card, we return null and stay hidden rather
+		// than mis-anchoring inside the control rows.
 		_resolveAnchor() {
+			// 1) Preferred: Claude's own composer grid container.
 			for (const sel of CT.SEL.COMPOSER_GRID) {
 				const el = document.querySelector(sel);
 				if (el) return el;
 			}
-			for (const sel of CT.SEL.MODEL_TRIGGER) {
-				const ms = document.querySelector(sel);
-				if (ms) {
-					for (const g of CT.SEL.COMPOSER_GRID) {
-						const c = ms.closest(g);
-						if (c) return c;
-					}
-					return ms.parentElement;
-				}
-			}
+			// 2) Fallback (selectors drifted): derive the composer card from the
+			//    editor by climbing to the outermost ancestor that still tightly
+			//    wraps the input — i.e. stop once the parent is clearly the wider
+			//    page column. Anchoring after that whole card keeps every native
+			//    control above the strip.
 			const ed = CT.getComposer && CT.getComposer();
 			if (ed) {
-				for (const g of CT.SEL.COMPOSER_GRID) {
-					const c = ed.closest(g);
-					if (c) return c;
+				let card = ed;
+				for (let i = 0; i < 8 && card.parentElement && card.parentElement !== document.body; i++) {
+					const pr = card.parentElement.getBoundingClientRect();
+					const cr = card.getBoundingClientRect();
+					if (pr.width - cr.width > 24) break; // parent is the column, not a wrapper
+					card = card.parentElement;
 				}
-				return ed.parentElement?.parentElement || ed.parentElement;
+				// Accept only if we climbed past the editor to a real card wrapper.
+				if (card !== ed && card.parentElement) return card;
 			}
-			return null;
+			return null; // fail-safe: don't anchor among native controls
 		}
 
 		attach() {
@@ -163,18 +193,19 @@
 			const ed = CT.getComposer();
 			const text = ed ? (ed.textContent || '').trim() : '';
 			const ctxPct = CT.state.map?.count ? Math.min(100, (CT.state.map.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100) : 0;
-			this._suggestion = text ? CT.model.suggestModel({ text, contextPct: ctxPct, hasAttachment: CT.detectAttachment?.() }) : null;
+			this._suggestion = (text && CT.model.suggestModel({ text, contextPct: ctxPct, hasAttachment: CT.detectAttachment?.() })) || NEUTRAL_SUGGESTION;
+			CT.state.suggestion = this._suggestion; // shared with the panel's Overview advisor card
 			this._renderModel();
 		}
 		_renderModel() {
-			const seg = this.bar.querySelector('[data-seg="model"]');
-			const div = this.bar.querySelector('[data-div="model"]');
-			const show = this.settings.showModelSuggestion !== false && this._suggestion && this.mode !== 'tiny';
-			seg.hidden = !show;
-			if (div) div.hidden = !show;
+			if (!this.modelPill) return;
+			const sug = this._suggestion;
+			const show = this.settings.showModelSuggestion !== false && !!sug && this.mode !== 'tiny';
+			this.modelPill.hidden = !show;
 			if (!show) return;
-			seg.querySelector('.ct-seg__txt').textContent = this.mode === 'wide' ? `Suggested: ${this._suggestion.model}` : this._suggestion.model;
-			seg.title = `Suggested model: ${this._suggestion.model} — ${this._suggestion.reason}`;
+			this.modelPill.querySelector('.ct-strip__model-lbl').textContent = sug.model;
+			this.modelPill.title = `Suggested model: ${sug.model} — ${sug.reason} (click to switch)`;
+			this.modelPill.setAttribute('aria-label', `Suggested model ${sug.model}. ${sug.reason}. Activate to switch.`);
 		}
 
 		// ---- value rendering ----
@@ -184,34 +215,32 @@
 			const usage = CT.state.usage;
 			const wide = this.mode === 'wide';
 			const mid = this.mode === 'mid';
+			this._aria = []; // collected into one summary on the usage button
 
 			const setUsageSeg = (seg, w, longLabel, shortLabel, name) => {
 				const el = this.bar.querySelector(`[data-seg="${seg}"]`);
+				const lab = el.querySelector('.ct-seg__lab');
 				const txt = el.querySelector('.ct-seg__txt');
 				const rail = el.querySelector('.ct-rail i');
 				const pct = w?.utilization;
 				const lvl = pct == null ? null : CT.usage.level(pct);
 				el.classList.remove('ct-lvl-healthy', 'ct-lvl-moderate', 'ct-lvl-high', 'ct-lvl-critical');
 				if (lvl) el.classList.add(`ct-lvl-${lvl.key}`);
+				lab.textContent = wide || mid ? longLabel : shortLabel;
 				if (rail) {
 					rail.style.width = `${pct || 0}%`;
 					rail.className = '';
 					rail.classList.add(`ct-lvlbg-${lvl ? lvl.key : 'healthy'}`);
 				}
-				if (pct == null) {
-					txt.textContent = `${wide || mid ? longLabel : shortLabel} —`;
-				} else if (wide && w.resets_at) {
-					txt.textContent = `${longLabel} ${pct.toFixed(pct < 10 ? 1 : 0)}% · resets in ${fmtCountdown(Date.parse(w.resets_at))}`;
-				} else {
-					txt.textContent = `${wide || mid ? longLabel : shortLabel} ${pct.toFixed(pct < 10 ? 1 : 0)}%`;
-				}
+				txt.textContent = pct == null ? '—' : `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
 				const resets = w?.resets_at ? `, resets in ${fmtCountdown(Date.parse(w.resets_at))}` : '';
-				el.setAttribute('aria-label', `${name} ${pct == null ? 'unknown' : Math.round(pct) + ' percent'}${lvl ? ', ' + lvl.label : ''}${resets}`);
+				this._aria.push(`${name} ${pct == null ? 'unknown' : Math.round(pct) + ' percent'}${lvl ? ', ' + lvl.label : ''}${resets}`);
 			};
-			setUsageSeg('five', usage?.five_hour, 'Session', '5h', 'Session usage');
-			setUsageSeg('seven', usage?.seven_day, 'Weekly', '7d', 'Weekly usage');
+			setUsageSeg('five', usage?.five_hour, 'Session', '5h', 'Session');
+			setUsageSeg('seven', usage?.seven_day, 'Weekly', '7d', 'Weekly');
 
 			const ctxSeg = this.bar.querySelector('[data-seg="ctx"]');
+			const ctxLab = ctxSeg.querySelector('.ct-seg__lab');
 			const ctxTxt = ctxSeg.querySelector('.ct-seg__txt');
 			const ctxDiv = this.bar.querySelector('[data-div="ctx"]');
 			// Context drops out first on narrow/tiny widths.
@@ -223,25 +252,27 @@
 				const lvl = CT.usage.level(ctxPct);
 				ctxSeg.classList.remove('ct-lvl-healthy', 'ct-lvl-moderate', 'ct-lvl-high', 'ct-lvl-critical');
 				ctxSeg.classList.add(`ct-lvl-${lvl.key}`);
-				ctxTxt.textContent = `Ctx ${ctxPct.toFixed(ctxPct < 10 ? 1 : 0)}%`;
-				ctxSeg.setAttribute('aria-label', `Context window ${Math.round(ctxPct)} percent, ${lvl.label}`);
+				ctxLab.textContent = 'Context';
+				ctxTxt.textContent = `${ctxPct.toFixed(ctxPct < 10 ? 1 : 0)}%`;
+				this._aria.push(`Context window ${Math.round(ctxPct)} percent, ${lvl.label}`);
 			}
 
 			this._renderCache();
 			this._renderModel();
+			this.usageBtn.setAttribute('aria-label', this._aria.length ? `Usage — ${this._aria.join('; ')}. Open usage details.` : 'Usage details');
 		}
 
 		_renderCache() {
 			const seg = this.bar.querySelector('[data-seg="cache"]');
 			const div = this.bar.querySelector('[data-div="cache"]');
 			const cu = CT.state.map?.cachedUntil;
-			const isCacheActive = cu && Date.now() < cu; // strip shows cache only while active
+			const isCacheActive = cu && Date.now() < cu; // strip shows cache ONLY while active
 			const show = isCacheActive && this.settings.showCacheCountdown !== false && (this.mode === 'wide' || this.mode === 'mid');
 			seg.hidden = !show;
 			if (div) div.hidden = !show;
 			if (show) {
-				seg.querySelector('.ct-seg__txt').textContent = `Cache ${fmtClock(cu)}`;
-				seg.setAttribute('aria-label', `Prompt cache active, ${fmtClock(cu)} remaining`);
+				seg.querySelector('.ct-seg__lab').textContent = 'Cache';
+				seg.querySelector('.ct-seg__txt').textContent = fmtClock(cu);
 			}
 		}
 

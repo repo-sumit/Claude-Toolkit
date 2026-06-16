@@ -201,6 +201,7 @@
 			triggerEl,
 			modal: !anchorRect,
 			width: 360,
+			footer: '↑ ↓ to move · ↵ to run · open anywhere with <span class="ct-kbd">Ctrl/Cmd&nbsp;+&nbsp;Shift&nbsp;+&nbsp;K</span>',
 			build: (body, api) => {
 				const search = document.createElement('input');
 				search.className = 'ct-input';

@@ -144,6 +144,7 @@
 			const ctxPct = CT.state.map?.count ? Math.min(100, (CT.state.map.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100) : 0;
 			const sug = CT.model.suggestModel({ text, contextPct: ctxPct, hasAttachment: detectAttachment() });
 			this._currentSuggestion = sug;
+			if (sug) CT.state.suggestion = sug; // shared with the panel's Overview advisor
 
 			if (this.settings.autoApplyModel && sug && sug.model !== this._lastAutoApplied) {
 				clearTimeout(this._autoT);
