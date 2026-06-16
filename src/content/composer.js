@@ -76,17 +76,9 @@
 			chip.className = 'ct-chip';
 			chip.setAttribute('role', 'status');
 			CT.a11y.decorate(chip);
-			chip.innerHTML = `
-				<span class="ct-chip__meter"></span>
-				<span class="ct-chip__sep" aria-hidden="true">·</span>
-				<span class="ct-chip__model" title=""></span>
-				<button class="ct-chip__apply" aria-label="Apply suggested model">Apply</button>`;
-			chip.querySelector('.ct-chip__apply').addEventListener('click', async () => {
-				const sug = this._currentSuggestion;
-				if (!sug) return;
-				const ok = await CT.model.applyModel(sug.model);
-				CT.model.toast(ok ? `Switched to ${sug.model}` : `Couldn't switch automatically — pick ${sug.model} manually`);
-			});
+			// Count-only chip. The model suggestion + Apply live in the bottom strip
+			// pill now (no duplicate model-advisor UI above the composer).
+			chip.innerHTML = `<span class="ct-chip__meter"></span>`;
 			document.body.appendChild(chip);
 			this.chip = chip;
 
@@ -134,17 +126,32 @@
 			if (!this.settings?.showAdvisor) return this._hideChip();
 			const ed = getComposer();
 			const text = ed ? ed.textContent || '' : '';
-			if (!ed || !text.trim() || this.paletteOpen) {
-				if (!text.trim()) this._lastAutoApplied = null;
+			const hasText = !!text.trim();
+			// Attachments count toward the estimate even with no typed text.
+			const att = CT.attachments
+				? CT.attachments.estimateForComposer()
+				: { tokens: 0, words: 0, confidence: 'exact', attachmentsCount: 0, types: [] };
+			const hasAtt = att.attachmentsCount > 0;
+
+			if (!ed || this.paletteOpen || (!hasText && !hasAtt)) {
+				if (!hasText && !hasAtt) this._lastAutoApplied = null;
 				return this._hideChip();
 			}
 
-			const tokens = CT.tokenizer.countTokens(text);
-			const words = (text.match(/\S+/g) || []).length;
+			const typedTokens = hasText ? CT.tokenizer.countTokens(text) : 0;
+			const typedWords = (text.match(/\S+/g) || []).length;
+			const totalTokens = typedTokens + (att.tokens || 0);
 			const ctxPct = CT.state.map?.count ? Math.min(100, (CT.state.map.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100) : 0;
-			const sug = CT.model.suggestModel({ text, contextPct: ctxPct, hasAttachment: detectAttachment() });
+			const sug = CT.model.suggestModel({
+				text,
+				contextPct: ctxPct,
+				hasAttachment: hasAtt,
+				attachmentTokens: att.tokens,
+				attachmentCount: att.attachmentsCount,
+				attachmentTypes: att.types
+			});
 			this._currentSuggestion = sug;
-			if (sug) CT.state.suggestion = sug; // shared with the panel's Overview advisor
+			if (sug) CT.state.suggestion = sug; // shared with the panel's Overview advisor + bottom pill
 
 			if (this.settings.autoApplyModel && sug && sug.model !== this._lastAutoApplied) {
 				clearTimeout(this._autoT);
@@ -157,15 +164,30 @@
 				}, 1800);
 			}
 
-			this.chip.querySelector('.ct-chip__meter').textContent = `≈${fmt(tokens)} tok · ${words} words`;
-			const modelEl = this.chip.querySelector('.ct-chip__model');
-			modelEl.textContent = sug ? `${sug.model}` : '';
-			modelEl.title = sug ? sug.reason : '';
-			this.chip.querySelector('.ct-chip__apply').style.display = sug ? '' : 'none';
-			this.chip.querySelector('.ct-chip__sep').style.display = sug ? '' : 'none';
+			const meter = this.chip.querySelector('.ct-chip__meter');
+			meter.textContent = this._formatMeter(totalTokens, typedWords, att);
+			meter.title = this._meterTooltip(att);
 
 			this.chip.classList.add('ct-chip--show');
 			this._position();
+		}
+
+		// `≈10 tok · 2 words` (+ ` · 1 file` / ` · 3 files` / ` · 1 file pending`
+		// when nothing about the file(s) could be measured).
+		_formatMeter(totalTokens, typedWords, att) {
+			let s = `≈${fmt(totalTokens)} tok · ${typedWords} ${typedWords === 1 ? 'word' : 'words'}`;
+			const n = att?.attachmentsCount || 0;
+			if (n > 0) {
+				const noun = `${n} file${n > 1 ? 's' : ''}`;
+				s += (att.tokens || 0) > 0 ? ` · ${noun}` : ` · ${noun} pending`;
+			}
+			return s;
+		}
+		_meterTooltip(att) {
+			if (!att || !att.attachmentsCount) return '';
+			if ((att.tokens || 0) <= 0 || att.confidence === 'unknown') return 'File attached, but content/size is not available for token estimation.';
+			if (att.confidence === 'metadata-only') return 'Includes estimated file tokens based on file type/size.';
+			return att.explanation || 'Includes estimated file tokens from the attachment preview.';
 		}
 
 		_maybeShowPalette() {

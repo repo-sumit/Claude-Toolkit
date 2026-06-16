@@ -48,11 +48,19 @@
 	function suggestModel(input) {
 		const text = (typeof input === 'string' ? input : input?.text) || '';
 		const t = text.trim();
-		if (!t) return null;
-		const lower = t.toLowerCase();
-		const tokens = CT.tokenizer.countTokens(t);
 		const contextPct = (typeof input === 'object' && Number(input?.contextPct)) || 0;
 		const hasAttachment = !!(typeof input === 'object' && input?.hasAttachment);
+		const attachmentCount = (typeof input === 'object' && Number(input?.attachmentCount)) || (hasAttachment ? 1 : 0);
+		const attachmentTokens = (typeof input === 'object' && Number(input?.attachmentTokens)) || 0;
+		const attachmentTypes = typeof input === 'object' && Array.isArray(input?.attachmentTypes) ? input.attachmentTypes : [];
+		// Advise when there's a draft OR attachments — an attached file with no
+		// typed text still warrants an attachment-aware suggestion.
+		if (!t && !attachmentCount) return null;
+		// Text-derived signals safely no-op on an empty draft (0 tokens, no matches).
+		const lower = t.toLowerCase();
+		const tokens = CT.tokenizer.countTokens(t);
+		const hasDocAttach = attachmentTypes.some((x) => x === 'doc' || x === 'text' || x === 'sheet');
+		const hasImageAttach = attachmentTypes.includes('image');
 		const hasCode = /```|\bfunction\b|\bclass\b|=>|;\s*$|\bdef \b|\bimport \b|SELECT .* FROM|console\.|<\/?[a-z][\w-]*>/im.test(t);
 
 		const signals = [];
@@ -95,7 +103,15 @@
 		else signals.push('medium-draft');
 
 		if (hasCode) { score += 2; signals.push('code-block'); }
-		if (hasAttachment) { score += 2; signals.push('attachment'); }
+		if (attachmentCount > 0) {
+			signals.push(`attachment×${attachmentCount}`);
+			if (hasDocAttach) score += 2;        // docs / code / sheets add reasoning weight
+			else if (hasImageAttach) score += 1; // images are lighter unless the task is heavy
+			else score += 2;                     // unknown attachment — be cautious
+			if (attachmentTokens >= 20000) { score += 2; signals.push('large-attachment'); }
+			else if (attachmentTokens >= 5000) { score += 1; signals.push('mid-attachment'); }
+			if (attachmentCount >= 3) { score += 1; signals.push('many-files'); }
+		}
 		if (contextPct >= 70) { score += 2; signals.push('high-context'); }
 		else if (contextPct >= 40) { score += 1; signals.push('mid-context'); }
 		if (/(comprehensive|in[- ]depth|detailed|thorough|exhaustive|step[- ]by[- ]step|production[- ]ready)/i.test(lower)) {
@@ -111,6 +127,12 @@
 		else if (score >= 1) tier = 'sonnet';
 		else if (score <= -1) tier = 'haiku';
 		else tier = 'sonnet'; // ambiguous medium default
+
+		// Meaningful attachments → never Haiku (image + simple prompt → at least Sonnet).
+		if (attachmentCount > 0 && tier === 'haiku') {
+			tier = 'sonnet';
+			signals.push('attachment-floor');
+		}
 
 		const confidence = Math.max(0.5, Math.min(0.95, 0.55 + Math.abs(score) * 0.07));
 		return {

@@ -28,7 +28,30 @@
 			'button[aria-haspopup="listbox"]'
 		],
 		MENU_ITEM: ['[role="menuitem"]', '[role="option"]'],
-		ATTACHMENT: ['[data-testid="file-thumbnail"]', '[data-testid*="attachment" i]', 'div[aria-label*="attachment" i]']
+		// Boolean "is anything attached?" probe (model-suggestion signal).
+		ATTACHMENT: ['[data-testid="file-thumbnail"]', '[data-testid*="attachment" i]', 'div[aria-label*="attachment" i]'],
+		// Attachment cards in the composer (each ~= one file). Layered fallbacks so
+		// no single class drift breaks detection; matched within the composer scope.
+		ATTACHMENT_CARD: [
+			'[data-testid="file-thumbnail"]',
+			'[data-testid*="attachment" i]',
+			'[data-testid*="file-preview" i]',
+			'[data-testid*="file" i][role]',
+			'[aria-label*="attachment" i]',
+			'[class*="attachment" i]',
+			'[class*="file-chip" i]',
+			'[class*="thumbnail" i]'
+		],
+		// Filename text within a card.
+		ATTACHMENT_NAME: [
+			'[data-testid*="file-name" i]',
+			'[class*="file-name" i]',
+			'[class*="filename" i]',
+			'[title]',
+			'figcaption'
+		],
+		// A substantial readable text block (pasted text / extracted doc preview).
+		ATTACHMENT_PREVIEW: ['[data-testid*="preview" i]', '[class*="preview" i]', 'pre', 'blockquote']
 	});
 
 	CT.MODELS = Object.freeze([

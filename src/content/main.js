@@ -80,6 +80,16 @@
 		inlineExport = new CT.InlineExport({ onOpenPanel: () => { panel.setOpen(true); panel.setTab('export'); } });
 		inlineExport.mount(settings);
 
+		// Attachments don't fire composer 'input' — observe them and recompute the
+		// token chip + model suggestion when files are added/removed.
+		if (CT.attachments) {
+			CT.attachments.start();
+			CT.attachments.onChange(() => {
+				CT.composer.update();
+				bottomBar._updateModel();
+			});
+		}
+
 		applyTheme();
 		new MutationObserver(applyTheme).observe(document.documentElement, {
 			attributes: true,

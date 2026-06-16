@@ -193,7 +193,15 @@
 			const ed = CT.getComposer();
 			const text = ed ? (ed.textContent || '').trim() : '';
 			const ctxPct = CT.state.map?.count ? Math.min(100, (CT.state.map.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100) : 0;
-			this._suggestion = (text && CT.model.suggestModel({ text, contextPct: ctxPct, hasAttachment: CT.detectAttachment?.() })) || NEUTRAL_SUGGESTION;
+			const att = CT.attachments ? CT.attachments.estimateForComposer() : { tokens: 0, attachmentsCount: 0, types: [] };
+			this._suggestion = ((text || att.attachmentsCount) && CT.model.suggestModel({
+				text,
+				contextPct: ctxPct,
+				hasAttachment: att.attachmentsCount > 0,
+				attachmentTokens: att.tokens,
+				attachmentCount: att.attachmentsCount,
+				attachmentTypes: att.types
+			})) || NEUTRAL_SUGGESTION;
 			CT.state.suggestion = this._suggestion; // shared with the panel's Overview advisor card
 			this._renderModel();
 		}

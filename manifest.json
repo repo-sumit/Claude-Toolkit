@@ -36,6 +36,7 @@
         "src/content/bridge-client.js",
         "src/vendor/o200k_base.js",
         "src/content/tokenizer.js",
+        "src/content/attachments.js",
         "src/content/conversation.js",
         "src/content/usage.js",
         "src/content/export.js",

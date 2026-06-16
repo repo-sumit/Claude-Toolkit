@@ -619,7 +619,7 @@
 				<div class="ct-section">Features</div>
 				${toggle('enableQuickTools', 'Quick Tools', 'Launcher + Ctrl/Cmd+Shift+K')}
 				${toggle('enablePalette', 'Slash prompt palette', 'Type / in the composer')}
-				${toggle('showAdvisor', 'Model advisor chip', 'Live token meter above the composer')}
+				${toggle('showAdvisor', 'Token estimate chip', 'Live token / word / file count above the composer')}
 				${toggle('autoApplyModel', 'Auto-apply suggested model', 'Experimental — drives the model picker')}
 				<div class="ct-section">Usage warnings</div>
 				${toggle('usageWarnings', 'Show usage warnings', 'Toasts as you approach a limit')}
