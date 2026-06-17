@@ -200,6 +200,7 @@
 		const list = current();
 		const est = estimateAttachmentTokens(list);
 		est.types = [...new Set(list.map((a) => a.type))];
+		est.list = list; // raw items (name/type/size) for the model engine's file rules
 		return est;
 	}
 

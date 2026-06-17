@@ -16,10 +16,22 @@
 	// moment there's composer text.
 	const NEUTRAL_SUGGESTION = Object.freeze({
 		tier: 'sonnet',
+		finalTier: 'sonnet',
+		baseTier: 'sonnet',
 		model: 'Sonnet',
-		confidence: 0.5,
+		displayName: 'Sonnet',
+		emoji: '\u{1F7E1}',
+		confidence: 0.5,         // legacy numeric field
+		confidenceScore: 0.5,
+		confidenceLabel: 'low',
 		reason: 'Balanced default \u2014 start typing for a tailored suggestion.',
+		cost: 'medium',
+		speed: 'medium',
+		category: 'unknown',
+		escalators: [],
 		signals: [],
+		alternative: { model: null, condition: '' },
+		explanation: 'Sonnet is a balanced default. Type a draft or attach a file for a tailored recommendation.',
 		detectedAvailableModelName: null
 	});
 
@@ -200,7 +212,8 @@
 				hasAttachment: att.attachmentsCount > 0,
 				attachmentTokens: att.tokens,
 				attachmentCount: att.attachmentsCount,
-				attachmentTypes: att.types
+				attachmentTypes: att.types,
+				attachments: att.list || []
 			})) || NEUTRAL_SUGGESTION;
 			CT.state.suggestion = this._suggestion; // shared with the panel's Overview advisor card
 			this._renderModel();
@@ -211,9 +224,11 @@
 			const show = this.settings.showModelSuggestion !== false && !!sug && this.mode !== 'tiny';
 			this.modelPill.hidden = !show;
 			if (!show) return;
-			this.modelPill.querySelector('.ct-strip__model-lbl').textContent = sug.model;
-			this.modelPill.title = `Suggested model: ${sug.model} — ${sug.reason} (click to switch)`;
-			this.modelPill.setAttribute('aria-label', `Suggested model ${sug.model}. ${sug.reason}. Activate to switch.`);
+			this.modelPill.querySelector('.ct-strip__model-lbl').textContent = sug.displayName || sug.model;
+			this.modelPill.dataset.tier = sug.finalTier || sug.tier || 'sonnet'; // tints the star by tier
+			const cs = sug.cost && sug.speed ? ` · ${sug.cost} cost, ${sug.speed}` : '';
+			this.modelPill.title = `Suggested: ${sug.displayName || sug.model} — ${sug.reason}${cs} (click to switch)`;
+			this.modelPill.setAttribute('aria-label', `Suggested model ${sug.displayName || sug.model}. ${sug.reason}. Activate to switch.`);
 		}
 
 		// ---- value rendering ----
@@ -322,7 +337,14 @@
 						row('Weekly (7d)', s7?.utilization ?? null, s7?.resets_at ? `Resets in ${fmtCountdown(Date.parse(s7.resets_at))}` : '', METRIC_HELP.seven) +
 						row('Context window', ctxPct, map?.count ? `${CT.tokenizer.isApproximate() ? '~' : ''}${CT.u.fmtTokens(map.total)} / ${CT.u.fmtTokens(CT.CONST.CONTEXT_LIMIT_TOKENS)} tokens · ${map.count} messages` : 'Open a conversation', METRIC_HELP.ctx) +
 						`<div class="ct-urow"><div class="ct-urow__top"><span class="ct-urow__name">Prompt cache</span><span class="ct-urow__val ct-urow__val--muted">${cacheActive ? fmtClock(cu) + ' left' : 'expired'}</span></div><div class="ct-hint ct-hint--help">${esc(METRIC_HELP.cache)}</div></div>` +
-						(this._suggestion ? `<div class="ct-urow"><div class="ct-urow__top"><span class="ct-urow__name">Suggested model</span><span class="ct-urow__val">${esc(this._suggestion.model)}</span></div><div class="ct-hint ct-hint--help">${esc(this._suggestion.reason)}</div></div>` : '');
+						(() => {
+							const sug = this._suggestion;
+							if (!sug) return '';
+							const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+							const mtier = sug.finalTier || sug.tier || 'sonnet';
+							const alt = sug.alternative && sug.alternative.model ? `💡 Consider ${cap(sug.alternative.model)} ${esc(sug.alternative.condition || '')}` : '';
+							return `<div class="ct-urow"><div class="ct-urow__top"><span class="ct-urow__name">Suggested model</span><span class="ct-urow__val"><span class="ct-modeltag" data-tier="${mtier}">${sug.emoji || ''} ${esc(sug.displayName || sug.model)}</span></span></div><div class="ct-hint">${esc(sug.reason)}</div><div class="ct-hint ct-hint--help">Cost: ${esc(cap(sug.cost) || '—')} · Speed: ${esc(cap(sug.speed) || '—')} · Confidence: ${esc(cap(sug.confidenceLabel || 'medium'))}</div>${alt ? `<div class="ct-hint ct-hint--help">${alt}</div>` : ''}</div>`;
+						})();
 					api.place();
 				}
 			});

@@ -107,7 +107,7 @@
 .ct-root * {
 	box-sizing: border-box;
 }
-.ct-btn, .ct-iconbtn, .ct-tab, .ct-row, .ct-pill, .ct-minibtn, .ct-tool, .ct-input, .ct-textarea, .ct-menuitem {
+.ct-btn, .ct-iconbtn, .ct-tab, .ct-map-row, .ct-tool, .ct-input, .ct-textarea, .ct-menuitem, .ct-strip__model {
 	font-family: inherit;
 }
 
@@ -310,28 +310,33 @@
 .ct-hint b { color: var(--ct-text); font-weight: 600; }
 .ct-hint code { background: var(--ct-inset-bg); padding: 1px 5px; border-radius: 5px; color: var(--ct-text); }
 
-/* Meters (Map header) */
-.ct-meter { margin-bottom: 12px; }
-.ct-meter__row {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	margin-bottom: 2px;
+/* Map header — "Context usage" + used/remaining/percent */
+.ct-mapmeter { margin-bottom: 12px; }
+.ct-mapmeter__sub {
+	font-size: 12px;
+	color: var(--ct-text-2);
+	font-variant-numeric: tabular-nums;
+	margin-bottom: 5px;
 }
-.ct-meter__text { font-size: 12.5px; font-weight: 600; color: var(--ct-text); }
-.ct-meter__pct { font-size: 12px; color: var(--ct-text-2); font-variant-numeric: tabular-nums; }
+.ct-mapmeter__sub .ct-lvl-healthy,
+.ct-mapmeter__sub .ct-lvl-moderate,
+.ct-mapmeter__sub .ct-lvl-high,
+.ct-mapmeter__sub .ct-lvl-critical { font-weight: 600; }
 
-/* Map list */
+/* Map list — each row is a CSS grid so the token label sits in its OWN cell
+   and can never overlap the preview, timestamp, or an adjacent row. The heat
+   fill is absolute behind the cells (z-index 0); all text is z-index 1. */
 .ct-list { margin-top: 6px; }
-.ct-row {
-	position: relative;
-	display: flex;
+.ct-map-row {
+	display: grid;
+	grid-template-columns: 10px minmax(0, 1fr) auto minmax(52px, auto);
+	column-gap: 8px;
 	align-items: center;
-	gap: 9px;
+	position: relative;
 	width: 100%;
 	min-height: 32px;
-	padding: 8px 10px;
 	margin: 1px 0;
+	padding: 7px 8px;
 	border: none;
 	border-radius: var(--ct-radius-sm);
 	background: transparent;
@@ -341,43 +346,55 @@
 	overflow: hidden;
 	transition: background 120ms ease;
 }
-.ct-row:hover { background: var(--ct-hover); }
-.ct-row__bar {
+.ct-map-row:hover { background: var(--ct-hover); }
+.ct-map-row-fill {
 	position: absolute;
-	left: 0; top: 0; bottom: 0;
-	width: 0%;
-	border-radius: var(--ct-radius-sm);
+	inset: 0;
+	width: var(--ct-row-heat-width, 0%);
+	z-index: 0;
 	pointer-events: none;
+	border-radius: inherit;
 	transition: width 260ms ease;
 }
-.ct-row__dot {
-	position: relative; z-index: 1;
-	flex: none;
+.ct-map-dot,
+.ct-map-preview,
+.ct-map-time,
+.ct-map-tokens { position: relative; z-index: 1; }
+.ct-map-dot {
 	width: 7px; height: 7px;
 	border-radius: 50%;
+	justify-self: center;
 }
-.ct-row__dot--human { background: var(--ct-blue); }
-.ct-row__dot--assistant { background: var(--ct-accent); }
-.ct-row__label {
-	position: relative; z-index: 1;
-	flex: 1; min-width: 0;
-	font-size: 12.5px; line-height: 1.3;
-	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.ct-map-dot--human { background: var(--ct-blue); }
+.ct-map-dot--assistant { background: var(--ct-accent); }
+.ct-map-preview {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12.5px;
+	line-height: 1.3;
+	color: var(--ct-text);
 }
-.ct-row__time {
-	position: relative; z-index: 1;
-	flex: none;
+.ct-map-time {
+	white-space: nowrap;
+	opacity: 0.75;
 	font-size: 11px;
 	font-variant-numeric: tabular-nums;
 	color: var(--ct-text);
-	white-space: nowrap;
 }
-.ct-row__tokens {
-	position: relative; z-index: 1;
-	flex: none;
-	font-size: 10px;
+.ct-map-tokens {
+	white-space: nowrap;
+	text-align: right;
 	font-variant-numeric: tabular-nums;
-	color: var(--ct-text-3);
+	font-size: 11px;
+	opacity: 0.8;
+	color: var(--ct-text);
+}
+/* Narrow panel/viewport: drop the timestamp before the token count. */
+@media (max-width: 360px) {
+	.ct-map-row { grid-template-columns: 10px minmax(0, 1fr) minmax(48px, auto); }
+	.ct-map-time { display: none; }
 }
 
 /* Flash highlight on the jumped-to message (claude's DOM) */
@@ -724,7 +741,20 @@
 .ct-strip__model:hover { background: var(--ct-hover); }
 .ct-strip__model[hidden] { display: none; }
 .ct-strip__model .ct-ic { color: var(--ct-accent); flex: none; }
+/* Star tints by recommended tier (green Haiku / accent Sonnet / red Opus). */
+.ct-strip__model[data-tier="haiku"] .ct-ic { color: var(--ct-fill-healthy); }
+.ct-strip__model[data-tier="opus"] .ct-ic { color: var(--ct-fill-critical); }
 .ct-strip__model-lbl { font-weight: 500; }
+
+/* Tier-colored model name in the usage popover + Overview advisor accent edge */
+.ct-modeltag { font-weight: 600; }
+.ct-modeltag[data-tier="haiku"] { color: var(--ct-lvl-healthy); }
+.ct-modeltag[data-tier="sonnet"] { color: var(--ct-accent-soft); }
+.ct-modeltag[data-tier="opus"] { color: var(--ct-lvl-critical); }
+.ct-advisor__meta { font-size: 11px; color: var(--ct-text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.ct-advisor[data-tier="haiku"] { border-left: 3px solid var(--ct-fill-healthy); }
+.ct-advisor[data-tier="sonnet"] { border-left: 3px solid var(--ct-accent); }
+.ct-advisor[data-tier="opus"] { border-left: 3px solid var(--ct-fill-critical); }
 .ct-strip__icon {
 	flex: none;
 	width: 30px;

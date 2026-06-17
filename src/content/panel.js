@@ -4,6 +4,12 @@
 	const CT = (globalThis.ClaudeToolkit = globalThis.ClaudeToolkit || {});
 	const { fmtTokens, esc: escapeHtml, makeId, fmtCountdown, fmtClock } = CT.u;
 
+	// Dev-only diagnostics (never surfaced to users). Enable in the console with
+	// localStorage.setItem('ct-debug', '1').
+	const DEBUG = (() => {
+		try { return !!globalThis.localStorage && localStorage.getItem('ct-debug') === '1'; } catch { return false; }
+	})();
+
 	const TABS = [
 		['overview', 'Overview'],
 		['map', 'Map'],
@@ -177,8 +183,9 @@
 			const cu = this.cachedUntil;
 			const cacheVal = !cu ? '—' : Date.now() >= cu ? 'expired' : fmtClock(cu);
 			const f = this.usage?.five_hour, s7 = this.usage?.seven_day;
-			const sug = CT.state.suggestion || { model: 'Sonnet', confidence: 0.5, reason: 'Balanced default — type a draft for a tailored suggestion.' };
+			const sug = CT.state.suggestion || { model: 'Sonnet', confidence: 0.5, reason: 'Balanced default — type a draft for a tailored suggestion.', emoji: '🟡', cost: 'medium', speed: 'medium' };
 			const matchPct = Math.round((sug.confidence ?? 0.5) * 100);
+			const advMeta = sug.cost && sug.speed ? `Cost: ${sug.cost} · Speed: ${sug.speed}` : '';
 			pane.innerHTML = `
 				<div class="ct-section">Usage</div>
 				<div class="ct-ovgrid">
@@ -193,10 +200,11 @@
 				</div>
 
 				<div class="ct-section">Model advisor</div>
-				<div class="ct-advisor">
+				<div class="ct-advisor" data-tier="${escapeHtml(sug.finalTier || sug.tier || 'sonnet')}">
 					<div class="ct-advisor__main">
-						<div class="ct-advisor__top"><span class="ct-advisor__model" data-adv="model">${escapeHtml(sug.model)}</span><span class="ct-advisor__match" data-adv="match">${matchPct}% match</span></div>
+						<div class="ct-advisor__top"><span class="ct-advisor__model" data-adv="model">${sug.emoji ? sug.emoji + ' ' : ''}${escapeHtml(sug.model)}</span><span class="ct-advisor__match" data-adv="match">${matchPct}% match</span></div>
 						<div class="ct-advisor__reason" data-adv="reason">${escapeHtml(sug.reason)}</div>
+						${advMeta ? `<div class="ct-advisor__meta" data-adv="meta">${escapeHtml(advMeta)}</div>` : ''}
 					</div>
 					<button class="ct-btn ct-btn--primary" data-applymodel style="flex:none;min-height:34px;padding:0 16px;">Apply</button>
 				</div>
@@ -225,45 +233,80 @@
 				return;
 			}
 			const approx = CT.tokenizer.isApproximate();
-			const pct = Math.min(100, (m.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100);
+			const a = approx ? '~' : '';
+			const limit = CT.CONST.CONTEXT_LIMIT_TOKENS;
+			const pct = Math.min(100, (m.total / limit) * 100);
 			const lvl = CT.usage.level(pct) || { key: 'healthy' };
+			// One decimal in the k-range so "used/remaining" stay precise in the header.
+			const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k` : `${Math.round(n)}`);
+			const remaining = Math.max(0, limit - m.total);
+
+			// Single pass: ONE row object per message. Preview, time, tokens, heat
+			// width, and the jump target all come from the same item, so a token
+			// label can never drift onto the wrong row.
+			const rows = m.items.map((it, index) => ({
+				item: it,
+				index,
+				role: it.sender === 'assistant' ? 'Assistant' : 'You',
+				preview: it.label,
+				time: it.timeLabel || '',
+				tokens: it.tokens,
+				heatPercent: m.max > 0 ? Math.min(100, Math.max(6, (it.tokens / m.max) * 100)) : 0
+			}));
+
+			// Dev-only: rendered rows must sum to the branch total (never shown to users).
+			if (DEBUG) {
+				const renderedTotal = rows.reduce((sum, r) => sum + r.tokens, 0);
+				const branchTotal = m.total;
+				if (branchTotal > 0 && Math.abs(renderedTotal - branchTotal) / branchTotal > 0.05) {
+					console.warn('[Claude Toolkit] Map token total mismatch', { renderedTotal, branchTotal });
+				}
+			}
+
 			pane.innerHTML = `
-				<div class="ct-meter">
-					<div class="ct-meter__row"><span class="ct-meter__text">${approx ? '~' : ''}${fmtTokens(m.total)} / ${fmtTokens(CT.CONST.CONTEXT_LIMIT_TOKENS)} tokens</span><span class="ct-meter__pct">${pct.toFixed(pct < 10 ? 1 : 0)}%</span></div>
+				<div class="ct-section">Context usage</div>
+				<div class="ct-mapmeter">
+					<div class="ct-mapmeter__sub"><span class="ct-lvl-${lvl.key}">${a}${fmtK(m.total)} used</span> · ${fmtK(remaining)} remaining · ${pct.toFixed(pct < 10 ? 1 : 0)}%</div>
 					<div class="ct-bar-track"><div class="ct-bar-fill ct-lvlbg-${lvl.key}" style="width:${pct}%"></div></div>
 					<div class="ct-hint">${m.count} messages on this branch${approx ? ' · approx. counts' : ''} · times shown per message · click a row to jump</div>
 				</div>
 				<div class="ct-list"></div>`;
-			// Per-row token heatmap as a terracotta-accent opacity ramp (matches the
-			// redesign), so weight reads as intensity rather than a green→red hue.
-			const heatAccent = (r) => `rgba(217, 119, 87, ${(0.18 + Math.max(0, Math.min(1, r)) * 0.52).toFixed(2)})`;
+
+			// Per-row heatmap: a terracotta-accent opacity ramp behind the grid cells.
+			const heatAccent = (p) => `rgba(217, 119, 87, ${(0.16 + (Math.max(0, Math.min(100, p)) / 100) * 0.5).toFixed(2)})`;
 			const list = pane.querySelector('.ct-list');
 			const frag = document.createDocumentFragment();
-			for (const it of m.items) {
-				const ratio = m.max > 0 ? it.tokens / m.max : 0;
-				const row = document.createElement('button');
-				row.className = 'ct-row';
-				const who = it.sender === 'assistant' ? 'Claude' : 'You';
-				row.title = `${who}${it.timeLabel ? ` · ${it.timeLabel}` : ''} · ${it.tokens.toLocaleString()} tokens — click to jump`;
-				row.setAttribute('aria-label', `Jump to message ${it.index + 1} from ${who}${it.timeLabel ? `, sent ${it.timeLabel}` : ''}, ${it.tokens.toLocaleString()} tokens`);
-				const bar = document.createElement('div');
-				bar.className = 'ct-row__bar';
-				bar.style.width = `${Math.max(6, ratio * 100)}%`;
-				bar.style.background = heatAccent(ratio);
+			for (const r of rows) {
+				const btn = document.createElement('button');
+				btn.className = 'ct-map-row';
+				btn.type = 'button';
+				btn.style.setProperty('--ct-row-heat-width', `${r.heatPercent}%`);
+				btn.title = `Message tokens: ${a}${r.tokens.toLocaleString()}\nTime: ${r.time || '—'}\nRole: ${r.role}\nClick to jump`;
+				btn.setAttribute('aria-label', `Jump to message ${r.index + 1} from ${r.role === 'Assistant' ? 'Claude' : 'you'}${r.time ? `, sent ${r.time}` : ''}, ${a}${r.tokens.toLocaleString()} tokens`);
+
+				const fill = document.createElement('span');
+				fill.className = 'ct-map-row-fill';
+				fill.style.background = heatAccent(r.heatPercent);
+
 				const dot = document.createElement('span');
-				dot.className = `ct-row__dot ct-row__dot--${it.sender}`;
-				const label = document.createElement('span');
-				label.className = 'ct-row__label';
-				label.textContent = it.label;
+				dot.className = `ct-map-dot ct-map-dot--${r.item.sender}`;
+				dot.setAttribute('aria-hidden', 'true');
+
+				const preview = document.createElement('span');
+				preview.className = 'ct-map-preview';
+				preview.textContent = r.preview;
+
 				const time = document.createElement('span');
-				time.className = 'ct-row__time';
-				time.textContent = it.timeLabel || '';
+				time.className = 'ct-map-time';
+				time.textContent = r.time;
+
 				const tok = document.createElement('span');
-				tok.className = 'ct-row__tokens';
-				tok.textContent = fmtTokens(it.tokens);
-				row.append(bar, dot, label, time, tok);
-				row.addEventListener('click', () => this.jumpTo(it));
-				frag.appendChild(row);
+				tok.className = 'ct-map-tokens';
+				tok.textContent = `${a}${fmtTokens(r.tokens)} tok`;
+
+				btn.append(fill, dot, preview, time, tok);
+				btn.addEventListener('click', () => this.jumpTo(r.item));
+				frag.appendChild(btn);
 			}
 			list.replaceChildren(frag);
 		}
@@ -664,12 +707,17 @@
 				// Keep the model-advisor card in sync with the live draft suggestion.
 				const adv = CT.state.suggestion;
 				if (adv) {
+					const advEl = ov.querySelector('.ct-advisor');
+					if (advEl) advEl.dataset.tier = adv.finalTier || adv.tier || 'sonnet';
 					const mEl = ov.querySelector('[data-adv="model"]');
-					if (mEl && mEl.textContent !== adv.model) mEl.textContent = adv.model;
+					const mText = `${adv.emoji ? adv.emoji + ' ' : ''}${adv.model}`;
+					if (mEl && mEl.textContent !== mText) mEl.textContent = mText;
 					const matchEl = ov.querySelector('[data-adv="match"]');
 					if (matchEl) matchEl.textContent = `${Math.round((adv.confidence ?? 0.5) * 100)}% match`;
 					const rEl = ov.querySelector('[data-adv="reason"]');
 					if (rEl && rEl.textContent !== adv.reason) rEl.textContent = adv.reason;
+					const metaEl = ov.querySelector('[data-adv="meta"]');
+					if (metaEl && adv.cost && adv.speed) metaEl.textContent = `Cost: ${adv.cost} · Speed: ${adv.speed}`;
 				}
 			}
 		}

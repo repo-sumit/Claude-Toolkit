@@ -40,6 +40,7 @@
         "src/content/conversation.js",
         "src/content/usage.js",
         "src/content/export.js",
+        "src/content/skills/pick-model/pick-model.js",
         "src/content/model.js",
         "src/content/popover.js",
         "src/content/tools.js",

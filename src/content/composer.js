@@ -148,7 +148,8 @@
 				hasAttachment: hasAtt,
 				attachmentTokens: att.tokens,
 				attachmentCount: att.attachmentsCount,
-				attachmentTypes: att.types
+				attachmentTypes: att.types,
+				attachments: att.list || []
 			});
 			this._currentSuggestion = sug;
 			if (sug) CT.state.suggestion = sug; // shared with the panel's Overview advisor + bottom pill

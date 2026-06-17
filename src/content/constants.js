@@ -54,12 +54,6 @@
 		ATTACHMENT_PREVIEW: ['[data-testid*="preview" i]', '[class*="preview" i]', 'pre', 'blockquote']
 	});
 
-	CT.MODELS = Object.freeze([
-		{ tier: 'haiku', label: 'Haiku', blurb: 'fast / cheap / light' },
-		{ tier: 'sonnet', label: 'Sonnet', blurb: 'balanced / default / reasoning' },
-		{ tier: 'opus', label: 'Opus', blurb: 'maximum reasoning / deep work' }
-	]);
-
 	// ---- SVG icon set (Claude-native: 24-grid stroke icons, currentColor) -----
 	const ICON_PATHS = {
 		// Two-sparkle "tools" mark (matches the redesign's Quick Tools trigger).
@@ -67,20 +61,14 @@
 		// Single 4-point star used as the accent glyph on the model-suggestion pill.
 		star: '<path d="m12 3 2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>',
 		panel: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/>',
-		share: '<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/>',
 		copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 		download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
 		braces: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 1 2 2 2 2 0 0 1-2 2v5a2 2 0 0 1-2 2h-1"/>',
 		printer: '<path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
 		x: '<path d="M18 6 6 18M6 6l12 12"/>',
-		chevron: '<path d="m6 9 6 6 6-6"/>',
-		dots: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
 		refresh: '<path d="M20 11a8 8 0 1 0-2 5.5M20 5v6h-6"/>',
-		info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
-		search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/>',
 		pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
 		trash: '<path d="M5 7h14M9 7V5h6v2m-8 0 1 13h8l1-13"/>',
-		plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
 		exportarrow: '<path d="M4 12h13m0 0-5-5m5 5-5 5"/><path d="M20 4v16"/>'
 	};
 	CT.icon = (name, size = 16) =>

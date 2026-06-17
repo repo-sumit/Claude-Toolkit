@@ -3,12 +3,6 @@
 
 	const CT = (globalThis.ClaudeToolkit = globalThis.ClaudeToolkit || {});
 
-	const REASON = {
-		haiku: 'fast enough for this lightweight task',
-		sonnet: 'best balance of speed and quality for this task',
-		opus: 'use for deep reasoning / high-stakes complexity'
-	};
-
 	// ---- Detect available model names from Claude's selector ------------------
 	const seen = new Set();
 	function tierFromName(name) {
@@ -42,106 +36,57 @@
 		for (const n of seen) if (tierFromName(n) === tier) return n;
 		return null;
 	}
+	// Tiers we've actually seen offered in the picker (only populated once a model
+	// menu has been opened). null = unknown → the engine assumes all are available.
+	function detectAvailableTiers() {
+		collectVisibleModelNames();
+		const tiers = [];
+		const cur = currentModelName();
+		if (cur) { const t = tierFromName(cur); if (t) tiers.push(t); }
+		for (const n of seen) { const t = tierFromName(n); if (t && !tiers.includes(t)) tiers.push(t); }
+		return tiers.length ? tiers : null;
+	}
 
-	// ---- Suggestion engine ----------------------------------------------------
-	// Accepts a string or { text, contextPct, hasAttachment }.
+	// ---- Suggestion engine (delegates to the Pick Model engine) ---------------
+	// Public, backward-compatible entry point. Accepts a string or the existing
+	// { text, contextPct, hasAttachment, attachmentCount, attachmentTokens,
+	//   attachmentTypes, attachments } shape, builds the engine's input (adding
+	//   detected current/available models), and adapts the rich result so the
+	//   existing UI keeps working: `model` stays the display name and `confidence`
+	//   stays a 0-1 number. The full Pick Model fields ride along.
 	function suggestModel(input) {
-		const text = (typeof input === 'string' ? input : input?.text) || '';
-		const t = text.trim();
-		const contextPct = (typeof input === 'object' && Number(input?.contextPct)) || 0;
-		const hasAttachment = !!(typeof input === 'object' && input?.hasAttachment);
-		const attachmentCount = (typeof input === 'object' && Number(input?.attachmentCount)) || (hasAttachment ? 1 : 0);
-		const attachmentTokens = (typeof input === 'object' && Number(input?.attachmentTokens)) || 0;
-		const attachmentTypes = typeof input === 'object' && Array.isArray(input?.attachmentTypes) ? input.attachmentTypes : [];
-		// Advise when there's a draft OR attachments — an attached file with no
-		// typed text still warrants an attachment-aware suggestion.
-		if (!t && !attachmentCount) return null;
-		// Text-derived signals safely no-op on an empty draft (0 tokens, no matches).
-		const lower = t.toLowerCase();
-		const tokens = CT.tokenizer.countTokens(t);
-		const hasDocAttach = attachmentTypes.some((x) => x === 'doc' || x === 'text' || x === 'sheet');
-		const hasImageAttach = attachmentTypes.includes('image');
-		const hasCode = /```|\bfunction\b|\bclass\b|=>|;\s*$|\bdef \b|\bimport \b|SELECT .* FROM|console\.|<\/?[a-z][\w-]*>/im.test(t);
+		const legacy = typeof input === 'string' ? { text: input } : (input || {});
+		const text = legacy.text || legacy.promptText || '';
 
-		const signals = [];
-		let score = 0; // higher → more capable model
-
-		const hit = (pairs, label) => {
-			for (const [kw, w] of pairs) {
-				if (lower.includes(kw)) {
-					score += w;
-					signals.push(`${label}:${kw.trim()}`);
-				}
-			}
-		};
-		// Opus-leaning (high-stakes / deep)
-		hit([
-			['architecture', 3], ['security', 3], ['scalab', 2], ['production', 2], ['prod issue', 2],
-			['threat model', 3], ['distributed', 2], ['concurren', 2], ['legal', 3], ['financ', 2],
-			['compliance', 2], ['think deeply', 3], ['deep reasoning', 3], ['rigorous', 2], ['prove', 2],
-			['derive', 2], ['multi-step', 2], ['high-stakes', 3], ['mission critical', 3], ['optimize', 1],
-			['performance', 1]
-		], 'heavy');
-		// Sonnet-leaning (balanced reasoning)
-		hit([
-			['prd', 2], ['product requirement', 2], ['analyz', 2], ['analysis', 2], ['debug', 2],
-			['code review', 2], ['refactor', 2], ['strategy', 2], ['evaluate', 1], ['compare', 1],
-			['insight', 1], ['edge case', 1], ['trade-off', 1], ['tradeoff', 1], ['design ', 1],
-			['explain', 1], ['plan ', 1], ['review', 1], ['metrics', 1]
-		], 'medium');
-		// Haiku-leaning (light)
-		hit([
-			['summar', -3], ['tl;dr', -3], ['tldr', -3], ['rewrite', -3], ['rephrase', -3], ['grammar', -3],
-			['spelling', -3], ['proofread', -3], ['fix typo', -3], ['bullet', -2], ['format', -2],
-			['action item', -2], ['extract', -1], ['brainstorm', -2], ['name idea', -3], ['names', -1],
-			['title', -2], ['quick', -3], ['simple', -2], ['translate', -2], ['shorten', -2],
-			['concise', -2], ['tone', -2], ['email', -1]
-		], 'light');
-
-		if (tokens < 120) { score -= 1; signals.push('short-draft'); }
-		else if (tokens >= 500) { score += 2; signals.push('long-draft'); }
-		else signals.push('medium-draft');
-
-		if (hasCode) { score += 2; signals.push('code-block'); }
-		if (attachmentCount > 0) {
-			signals.push(`attachment×${attachmentCount}`);
-			if (hasDocAttach) score += 2;        // docs / code / sheets add reasoning weight
-			else if (hasImageAttach) score += 1; // images are lighter unless the task is heavy
-			else score += 2;                     // unknown attachment — be cautious
-			if (attachmentTokens >= 20000) { score += 2; signals.push('large-attachment'); }
-			else if (attachmentTokens >= 5000) { score += 1; signals.push('mid-attachment'); }
-			if (attachmentCount >= 3) { score += 1; signals.push('many-files'); }
-		}
-		if (contextPct >= 70) { score += 2; signals.push('high-context'); }
-		else if (contextPct >= 40) { score += 1; signals.push('mid-context'); }
-		if (/(comprehensive|in[- ]depth|detailed|thorough|exhaustive|step[- ]by[- ]step|production[- ]ready)/i.test(lower)) {
-			score += 1;
-			signals.push('long-output');
+		let attachments = Array.isArray(legacy.attachments) ? legacy.attachments : [];
+		// Older callers may pass only counts/types — synthesize minimal items so
+		// the engine's per-file rules still have something to read.
+		if (!attachments.length && Number(legacy.attachmentCount) > 0) {
+			const types = Array.isArray(legacy.attachmentTypes) ? legacy.attachmentTypes : [];
+			attachments = Array.from({ length: Number(legacy.attachmentCount) }, (_, i) => ({ name: '', type: types[i] || types[0] || 'unknown' }));
 		}
 
-		const hasLight = signals.some((s) => s.startsWith('light:'));
-		let tier;
-		// Clear light intent on a contained task → Haiku, even if a medium word appears.
-		if (hasLight && score <= -2 && !hasAttachment && !hasCode && tokens < 600 && contextPct < 60) tier = 'haiku';
-		else if (score >= 4) tier = 'opus';
-		else if (score >= 1) tier = 'sonnet';
-		else if (score <= -1) tier = 'haiku';
-		else tier = 'sonnet'; // ambiguous medium default
+		if (!CT.pickModel || typeof CT.pickModel.pick !== 'function') return null;
+		const r = CT.pickModel.pick({
+			promptText: text,
+			selectedText: legacy.selectedText || '',
+			attachments,
+			attachmentTokens: Number(legacy.attachmentTokens) || 0,
+			conversationContext: { contextPct: Number(legacy.contextPct) || 0, map: CT.state?.map || null },
+			currentModel: currentModelName(),
+			availableModels: detectAvailableTiers(),
+			usageState: CT.state?.usage || null,
+			platform: 'claude.ai'
+		});
+		if (!r) return null;
 
-		// Meaningful attachments → never Haiku (image + simple prompt → at least Sonnet).
-		if (attachmentCount > 0 && tier === 'haiku') {
-			tier = 'sonnet';
-			signals.push('attachment-floor');
-		}
-
-		const confidence = Math.max(0.5, Math.min(0.95, 0.55 + Math.abs(score) * 0.07));
 		return {
-			tier,
-			model: { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' }[tier],
-			confidence: Math.round(confidence * 100) / 100,
-			reason: REASON[tier],
-			signals,
-			detectedAvailableModelName: availableModelNameForTier(tier)
+			...r,
+			tier: r.finalTier,
+			model: r.displayName,          // legacy UI expects the display name here
+			confidence: r.confidenceScore, // legacy UI expects a 0-1 number here
+			confidenceLabel: r.confidence, // 'high' | 'medium' | 'low'
+			detectedAvailableModelName: availableModelNameForTier(r.finalTier)
 		};
 	}
 
