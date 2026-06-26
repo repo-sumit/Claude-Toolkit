@@ -2,7 +2,7 @@
 	'use strict';
 
 	const CT = (globalThis.ClaudeToolkit = globalThis.ClaudeToolkit || {});
-	const { fmtClock, fmtCountdown, esc } = CT.u;
+	const { fmtClock, esc } = CT.u;
 
 	const METRIC_HELP = {
 		ctx: 'How full this conversation\u2019s 200k context window is.',
@@ -66,9 +66,9 @@
 			// usage button so it can be applied with one click.
 			bar.innerHTML = `
 				<button class="ct-strip__usage" data-act="usage" aria-haspopup="dialog" aria-expanded="false" aria-label="Usage details">
-					<span class="ct-seg" data-seg="five"><span class="ct-seg__lab"></span><span class="ct-rail"><i></i></span><span class="ct-seg__txt"></span></span>
+					<span class="ct-seg" data-seg="five"><span class="ct-seg__lab"></span><span class="ct-rail"><i></i></span><span class="ct-seg__txt"></span><span class="ct-seg__reset"></span></span>
 					<span class="ct-seg__div" data-div="seven" aria-hidden="true"></span>
-					<span class="ct-seg" data-seg="seven"><span class="ct-seg__lab"></span><span class="ct-rail"><i></i></span><span class="ct-seg__txt"></span></span>
+					<span class="ct-seg" data-seg="seven"><span class="ct-seg__lab"></span><span class="ct-rail"><i></i></span><span class="ct-seg__txt"></span><span class="ct-seg__reset"></span></span>
 					<span class="ct-seg__div" data-div="ctx" aria-hidden="true"></span>
 					<span class="ct-seg" data-seg="ctx"><span class="ct-seg__lab"></span><span class="ct-seg__txt"></span></span>
 					<span class="ct-seg__div" data-div="cache" aria-hidden="true"></span>
@@ -240,12 +240,18 @@
 			const mid = this.mode === 'mid';
 			this._aria = []; // collected into one summary on the usage button
 
-			const setUsageSeg = (seg, w, longLabel, shortLabel, name) => {
+			// Reset-aware views (status, exact/estimated reset, source) — rebuilt
+			// fresh here so the countdown is current at render time.
+			const sessionView = CT.usage.deriveSession(usage, { sessionStartedAt: CT.state.sessionStartedAt });
+			const weeklyView = CT.usage.deriveWeekly(usage);
+
+			const setUsageSeg = (seg, view, longLabel, shortLabel, name, kind) => {
 				const el = this.bar.querySelector(`[data-seg="${seg}"]`);
 				const lab = el.querySelector('.ct-seg__lab');
 				const txt = el.querySelector('.ct-seg__txt');
 				const rail = el.querySelector('.ct-rail i');
-				const pct = w?.utilization;
+				const reset = el.querySelector('.ct-seg__reset');
+				const pct = view.percent;
 				const lvl = pct == null ? null : CT.usage.level(pct);
 				el.classList.remove('ct-lvl-healthy', 'ct-lvl-moderate', 'ct-lvl-high', 'ct-lvl-critical');
 				if (lvl) el.classList.add(`ct-lvl-${lvl.key}`);
@@ -256,11 +262,17 @@
 					rail.classList.add(`ct-lvlbg-${lvl ? lvl.key : 'healthy'}`);
 				}
 				txt.textContent = pct == null ? '—' : `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
-				const resets = w?.resets_at ? `, resets in ${fmtCountdown(Date.parse(w.resets_at))}` : '';
-				this._aria.push(`${name} ${pct == null ? 'unknown' : Math.round(pct) + ' percent'}${lvl ? ', ' + lvl.label : ''}${resets}`);
+				if (reset) {
+					const inline = this._resetInline(view, kind);
+					reset.textContent = inline ? `· ${inline}` : '';
+					reset.hidden = !inline;
+				}
+				el.title = this._resetTip(view, kind);
+				const ariaReset = this._resetAria(view, kind);
+				this._aria.push(`${name} ${pct == null ? 'unknown' : Math.round(pct) + ' percent'}${lvl ? ', ' + lvl.label : ''}${ariaReset ? ', ' + ariaReset : ''}`);
 			};
-			setUsageSeg('five', usage?.five_hour, 'Session', '5h', 'Session');
-			setUsageSeg('seven', usage?.seven_day, 'Weekly', '7d', 'Weekly');
+			setUsageSeg('five', sessionView, 'Session', '5h', 'Session', 'session');
+			setUsageSeg('seven', weeklyView, 'Weekly', '7d', 'Weekly', 'weekly');
 
 			const ctxSeg = this.bar.querySelector('[data-seg="ctx"]');
 			const ctxLab = ctxSeg.querySelector('.ct-seg__lab');
@@ -285,6 +297,48 @@
 			this.usageBtn.setAttribute('aria-label', this._aria.length ? `Usage — ${this._aria.join('; ')}. Open usage details.` : 'Usage details');
 		}
 
+		// ---- reset-text helpers ----
+		// Short visible reset string for the strip, scaled to the current mode.
+		// Never invents a countdown: returns '' when no reset time is known.
+		_resetInline(view, kind) {
+			const mode = this.mode;
+			if (mode === 'tiny') return ''; // tiny: percentages only
+			if (kind === 'session') {
+				if (view.status === 'not_started') return mode === 'wide' ? 'starts on send' : 'starts';
+				if (!view.resetCountdown) return '';
+				const cd = view.confidence === 'estimated' ? `~${view.resetCountdown}` : view.resetCountdown;
+				return mode === 'wide' ? `resets in ${cd}` : cd;
+			}
+			// weekly: prefer the clock label when wide, the countdown when tight.
+			if (mode === 'wide') return view.resetLabel ? `resets ${view.resetLabel}` : view.resetCountdown ? `resets in ${view.resetCountdown}` : '';
+			return view.resetCountdown || view.resetLabel || '';
+		}
+
+		// Full-sentence native tooltip (title) per usage item.
+		_resetTip(view, kind) {
+			const p = view.percent == null ? 'usage not loaded' : `${view.percent.toFixed(view.percent < 10 ? 1 : 0)}% used`;
+			if (kind === 'session') {
+				if (view.status === 'not_started') return `Current session: ${p}. Starts when a message is sent.`;
+				if (view.confidence === 'estimated' && view.resetCountdown) return `Current session: ${p}. Estimated reset ~${view.resetCountdown} based on local send time.`;
+				if (view.resetCountdown) return `Current session: ${p}. Resets in ${view.resetCountdown}.`;
+				return `Current session: ${p}.`;
+			}
+			if (view.resetLabel) return `Weekly usage: ${p}. Resets ${view.resetLabel}${view.resetCountdown ? ` (${view.resetCountdown})` : ''}.`;
+			if (view.resetCountdown) return `Weekly usage: ${p}. Resets in ${view.resetCountdown}.`;
+			return `Weekly usage: ${p}.`;
+		}
+
+		// Spoken reset phrase folded into the usage button's aria-label.
+		_resetAria(view, kind) {
+			if (kind === 'session') {
+				if (view.status === 'not_started') return 'starts when a message is sent';
+				if (view.confidence === 'estimated' && view.resetCountdown) return `estimated reset in about ${view.resetCountdown}`;
+				return view.resetCountdown ? `resets in ${view.resetCountdown}` : '';
+			}
+			if (view.resetLabel) return `resets ${view.resetLabel}`;
+			return view.resetCountdown ? `resets in ${view.resetCountdown}` : '';
+		}
+
 		_renderCache() {
 			const seg = this.bar.querySelector('[data-seg="cache"]');
 			const div = this.bar.querySelector('[data-div="cache"]');
@@ -300,7 +354,14 @@
 		}
 
 		tick() {
-			if (this.visible) this._renderCache();
+			if (!this.visible) return;
+			this._renderCache(); // per-second mm:ss cache clock
+			// Reset countdowns move slowly — refresh their labels on a ~30s cadence.
+			const now = Date.now();
+			if (now - (this._resetTickAt || 0) >= 30000) {
+				this._resetTickAt = now;
+				this.render();
+			}
 		}
 
 		// ---- usage details popover ----
@@ -331,10 +392,13 @@
 					const ctxPct = map?.count ? Math.min(100, (map.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100) : null;
 					const cu = map?.cachedUntil;
 					const cacheActive = cu && Date.now() < cu;
-					const f = usage?.five_hour, s7 = usage?.seven_day;
+					const sv = CT.usage.deriveSession(usage, { sessionStartedAt: CT.state.sessionStartedAt });
+					const wv = CT.usage.deriveWeekly(usage);
+					const sessionSub = sv.status === 'not_started' ? 'Starts when a message is sent' : sv.resetLabel || '';
+					const weeklySub = wv.resetLabel ? `Resets ${wv.resetLabel}${wv.resetCountdown ? ` · ${wv.resetCountdown}` : ''}` : wv.resetCountdown ? `Resets in ${wv.resetCountdown}` : '';
 					body.innerHTML =
-						row('Session (5h)', f?.utilization ?? null, f?.resets_at ? `Resets in ${fmtCountdown(Date.parse(f.resets_at))}` : '', METRIC_HELP.five) +
-						row('Weekly (7d)', s7?.utilization ?? null, s7?.resets_at ? `Resets in ${fmtCountdown(Date.parse(s7.resets_at))}` : '', METRIC_HELP.seven) +
+						row('Session (5h)', sv.percent ?? null, sessionSub, METRIC_HELP.five) +
+						row('Weekly (7d)', wv.percent ?? null, weeklySub, METRIC_HELP.seven) +
 						row('Context window', ctxPct, map?.count ? `${CT.tokenizer.isApproximate() ? '~' : ''}${CT.u.fmtTokens(map.total)} / ${CT.u.fmtTokens(CT.CONST.CONTEXT_LIMIT_TOKENS)} tokens · ${map.count} messages` : 'Open a conversation', METRIC_HELP.ctx) +
 						`<div class="ct-urow"><div class="ct-urow__top"><span class="ct-urow__name">Prompt cache</span><span class="ct-urow__val ct-urow__val--muted">${cacheActive ? fmtClock(cu) + ' left' : 'expired'}</span></div><div class="ct-hint ct-hint--help">${esc(METRIC_HELP.cache)}</div></div>` +
 						(() => {

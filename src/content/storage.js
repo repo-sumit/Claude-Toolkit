@@ -65,5 +65,32 @@
 		return cache;
 	}
 
-	CT.storage = { getSettings, saveSettings };
+	// ---- session-start timestamp (local estimate fallback) ----
+	// Persisted separately from settings so a page reload mid-session keeps the
+	// estimated 5h reset. Only used when the usage API hasn't surfaced an exact
+	// session reset yet.
+	const SESSION_KEY = 'ct_usage_session_started_at';
+
+	async function getSessionStart() {
+		const data = await get(SESSION_KEY);
+		const v = data?.[SESSION_KEY];
+		return Number.isFinite(v) ? v : null;
+	}
+	function setSessionStart(ms) {
+		return set({ [SESSION_KEY]: ms });
+	}
+	function clearSessionStart() {
+		const a = area();
+		if (!a) return Promise.resolve();
+		return new Promise((resolve) => {
+			try {
+				const maybe = a.remove(SESSION_KEY, () => resolve());
+				if (maybe && typeof maybe.then === 'function') maybe.then(() => resolve());
+			} catch {
+				resolve();
+			}
+		});
+	}
+
+	CT.storage = { getSettings, saveSettings, getSessionStart, setSessionStart, clearSessionStart };
 })();

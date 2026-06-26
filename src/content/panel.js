@@ -2,7 +2,7 @@
 	'use strict';
 
 	const CT = (globalThis.ClaudeToolkit = globalThis.ClaudeToolkit || {});
-	const { fmtTokens, esc: escapeHtml, makeId, fmtCountdown, fmtClock } = CT.u;
+	const { fmtTokens, esc: escapeHtml, makeId, fmtClock } = CT.u;
 
 	// Dev-only diagnostics (never surfaced to users). Enable in the console with
 	// localStorage.setItem('ct-debug', '1').
@@ -170,9 +170,9 @@
 			if (!pane) return;
 			const m = this.lastMap;
 			const ctxPct = m?.count ? Math.min(100, (m.total / CT.CONST.CONTEXT_LIMIT_TOKENS) * 100) : null;
-			const card = (name, pct, sub, extraTag) => {
+			const card = (name, pct, sub, extraTag, tip) => {
 				const lvl = pct == null ? null : CT.usage.level(pct);
-				return `<div class="ct-card">
+				return `<div class="ct-card"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
 					<div class="ct-card__name">${escapeHtml(name)}</div>
 					<div class="ct-card__val">${pct == null ? '—' : `${pct.toFixed(pct < 10 ? 1 : 0)}%`}</div>
 					${lvl ? `<span class="ct-tag ct-lvl-${lvl.key}">${lvl.label}</span>` : extraTag || ''}
@@ -182,21 +182,31 @@
 			};
 			const cu = this.cachedUntil;
 			const cacheVal = !cu ? '—' : Date.now() >= cu ? 'expired' : fmtClock(cu);
-			const f = this.usage?.five_hour, s7 = this.usage?.seven_day;
+			const sv = CT.usage.deriveSession(this.usage, { sessionStartedAt: CT.state.sessionStartedAt });
+			const wv = CT.usage.deriveWeekly(this.usage);
+			const models = CT.usage.deriveModels(this.usage);
+			const modelCards = Object.entries(models)
+				.map(([name, mv]) => {
+					const nm = name.charAt(0).toUpperCase() + name.slice(1);
+					const sub = mv.resetLabel ? `Resets ${mv.resetLabel}` : 'no reset data';
+					return card(nm, mv.percent ?? null, `<span>${escapeHtml(sub)}</span>`, '', mv.resetLabel ? `${nm} weekly usage: resets ${mv.resetLabel}` : '');
+				})
+				.join('');
 			const sug = CT.state.suggestion || { model: 'Sonnet', confidence: 0.5, reason: 'Balanced default — type a draft for a tailored suggestion.', emoji: '🟡', cost: 'medium', speed: 'medium' };
 			const matchPct = Math.round((sug.confidence ?? 0.5) * 100);
 			const advMeta = sug.cost && sug.speed ? `Cost: ${sug.cost} · Speed: ${sug.speed}` : '';
 			pane.innerHTML = `
 				<div class="ct-section">Usage</div>
 				<div class="ct-ovgrid">
-					${card('Session (5h)', f?.utilization ?? null, `<span data-ov="five">${f?.resets_at ? `resets in ${fmtCountdown(Date.parse(f.resets_at))}` : 'usage not loaded yet'}</span>`)}
-					${card('Weekly (7d)', s7?.utilization ?? null, `<span data-ov="seven">${s7?.resets_at ? `resets in ${fmtCountdown(Date.parse(s7.resets_at))}` : 'usage not loaded yet'}</span>`)}
+					${card('Session (5h)', sv.percent ?? null, `<span data-ov="five">${escapeHtml(this._usageSub('session', sv))}</span>`, '', this._usageTip('session', sv))}
+					${card('Weekly (7d)', wv.percent ?? null, `<span data-ov="seven">${escapeHtml(this._usageSub('weekly', wv))}</span>`, '', this._usageTip('weekly', wv))}
 					${card('Context window', ctxPct, m?.count ? `<span data-ov="ctx">${CT.tokenizer.isApproximate() ? '~' : ''}${fmtTokens(m.total)} / ${fmtTokens(CT.CONST.CONTEXT_LIMIT_TOKENS)} tok · ${m.count} msgs</span>` : 'open a conversation')}
 					<div class="ct-card">
 						<div class="ct-card__name">Prompt cache</div>
 						<div class="ct-card__val" data-ov="cache">${cacheVal}</div>
 						<div class="ct-hint">~5 min after each Claude reply</div>
 					</div>
+					${modelCards}
 				</div>
 
 				<div class="ct-section">Model advisor</div>
@@ -221,6 +231,32 @@
 				const ok = await CT.model.applyModel(s.model);
 				CT.model.toast(ok ? `Switched to ${s.model}` : `Couldn’t switch automatically — pick ${s.model} manually`);
 			});
+		}
+
+		// Card sub-line text for a session/weekly reset-aware view.
+		_usageSub(kind, view) {
+			if (kind === 'session') {
+				if (view.status === 'not_started') return 'Starts when a message is sent';
+				if (view.resetCountdown) return `${view.resetLabel}${view.confidence === 'estimated' ? ' · estimated' : ''}`;
+				return view.percent == null ? 'usage not loaded yet' : 'reset time unknown';
+			}
+			if (view.resetLabel) return `Resets ${view.resetLabel}${view.resetCountdown ? ` · ${view.resetCountdown} remaining` : ''}`;
+			if (view.resetCountdown) return `Resets in ${view.resetCountdown}`;
+			return view.percent == null ? 'usage not loaded yet' : 'reset time unknown';
+		}
+
+		// Full-sentence tooltip for a usage card.
+		_usageTip(kind, view) {
+			const p = view.percent == null ? 'usage not loaded' : `${view.percent.toFixed(view.percent < 10 ? 1 : 0)}% used`;
+			if (kind === 'session') {
+				if (view.status === 'not_started') return `Current session: ${p}. Starts when a message is sent.`;
+				if (view.confidence === 'estimated' && view.resetCountdown) return `Estimated session reset: ~${view.resetCountdown} based on local send time.`;
+				if (view.resetCountdown) return `Current session: ${p}. Resets in ${view.resetCountdown}.`;
+				return `Current session: ${p}.`;
+			}
+			if (view.resetLabel) return `Weekly usage: ${p}. Resets ${view.resetLabel}.`;
+			if (view.resetCountdown) return `Weekly usage: ${p}. Resets in ${view.resetCountdown}.`;
+			return `Weekly usage: ${p}.`;
 		}
 
 		// ================= MAP =================
@@ -700,10 +736,19 @@
 					const cu = this.cachedUntil;
 					cacheEl.textContent = !cu ? '—' : Date.now() >= cu ? 'expired' : fmtClock(cu);
 				}
-				const five = ov.querySelector('[data-ov="five"]');
-				if (five && this.usageResetMs.five) five.textContent = `resets in ${fmtCountdown(this.usageResetMs.five)}`;
-				const seven = ov.querySelector('[data-ov="seven"]');
-				if (seven && this.usageResetMs.seven) seven.textContent = `resets in ${fmtCountdown(this.usageResetMs.seven)}`;
+				// Reset countdowns refresh on a ~30s cadence (the cache clock above
+				// stays per-second). Recomputed from the live views so an expiring
+				// estimate flips to "starts on send" without a data refetch.
+				const now = Date.now();
+				if (now - (this._resetTickAt || 0) >= 30000) {
+					this._resetTickAt = now;
+					const sv = CT.usage.deriveSession(this.usage, { sessionStartedAt: CT.state.sessionStartedAt });
+					const wv = CT.usage.deriveWeekly(this.usage);
+					const five = ov.querySelector('[data-ov="five"]');
+					if (five) five.textContent = this._usageSub('session', sv);
+					const seven = ov.querySelector('[data-ov="seven"]');
+					if (seven) seven.textContent = this._usageSub('weekly', wv);
+				}
 				// Keep the model-advisor card in sync with the live draft suggestion.
 				const adv = CT.state.suggestion;
 				if (adv) {

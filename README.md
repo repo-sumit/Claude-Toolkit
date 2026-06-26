@@ -4,7 +4,7 @@ A native-feeling productivity layer for `claude.ai`, in one extension. Everythin
 runs locally — it reads Claude's *own* API traffic in your browser, keeps settings
 in local browser storage, and sends nothing anywhere.
 
-## What's inside (v0.6 — Claude-native redesign)
+## What's inside (V7.2 — Claude-native redesign)
 
 This release implements the **Claude Toolkit Redesign** handoff from Claude
 Design: a warm, claude.ai-native dark shell (`#262624`/`#211f1d`/`#2a2926`
@@ -22,13 +22,18 @@ inserted into Claude's own layout *right below the composer card* (after the
 `chat-input-grid-container`), so it reads as part of the input and — because it
 lives in the normal document flow rather than as a floating overlay — it can
 **never cover** the attachment button, model selector, effort selector, mic, or
-send button. It shows `Session %` and `Weekly %` with thin progress rails + reset
-times, `Ctx %`, an active-only cache countdown, and a suggested model, plus one
-**Tools** icon and one **panel** icon. It's responsive to its own width: full
-labels when wide, Session/Weekly + model when medium, abbreviated when narrow,
-rails dropped when tight. Click the usage area for a compact details popover
-(thin bars, Healthy/Moderate/High/Near-limit, reset timers, brief explanations,
-and the model rationale).
+send button. It shows `Session %` and `Weekly %` with thin progress rails + **live reset
+timers**, `Ctx %`, an active-only cache countdown, and a suggested model, plus one
+**Tools** icon and one **panel** icon. The reset timers come from Claude's own
+usage API (exact `resets_at`): Session reads `resets in 4h 12m` while active and
+`starts on send` before the first message; Weekly reads `resets Sun 1:30 PM` (or a
+`3d 4h` countdown when space is tight). Countdowns refresh on a ~30s cadence and
+never show a fabricated time — when no reset is known, no timer is shown. It's
+responsive to its own width: full labels + reset text when wide, compact
+countdowns when medium/narrow, reset text dropped when tight (never covering
+native controls). Click the usage area for a compact details popover (thin bars,
+Healthy/Moderate/High/Near-limit, reset timers, brief explanations, and the model
+rationale).
 
 **Export on the latest reply only.** A subtle **Export** action sits in the
 footer/action-row cluster of the **bottom-most Claude reply** — styled like
@@ -130,5 +135,11 @@ counting uses a bundled tokenizer.
 
 ## Credits & license
 
+Copyright © 2026 **Sumit Kumar**. Released under the [MIT License](LICENSE) — you
+may use, copy, modify, and distribute it freely, provided the copyright notice and
+license text are retained.
+
 Token counting via [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer)
-(MIT — see THIRD_PARTY_NOTICES.md). MIT licensed.
+(MIT — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+
+Built by Sumit Kumar &lt;sumit.kumar@convegenius.ai&gt;.

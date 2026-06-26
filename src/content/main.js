@@ -43,10 +43,27 @@
 	const warned = new Set(); // "metric:threshold" toasts already shown
 
 	let panel, bottomBar, inlineExport, settings;
+	let lastReconcileMs = 0;
+
+	// Reset-aware snapshot built fresh on demand so countdowns are always current
+	// at the moment a UI renders. CT.state.usageView holds the last snapshot for
+	// any consumer that wants the cached value.
+	CT.currentUsageView = () => CT.usage.buildView(CT.state.usage, { sessionStartedAt: CT.state.sessionStartedAt });
+	function rebuildUsageView() {
+		CT.state.usageView = CT.currentUsageView();
+		return CT.state.usageView;
+	}
 
 	async function boot() {
 		settings = await CT.storage.getSettings();
 		CT.settingsRef = settings;
+
+		// Restore a mid-session local-estimate start (dropped if already expired).
+		CT.state.sessionStartedAt = await CT.storage.getSessionStart();
+		if (Number.isFinite(CT.state.sessionStartedAt) && Date.now() - CT.state.sessionStartedAt >= CT.usage.SESSION_WINDOW_MS) {
+			CT.state.sessionStartedAt = null;
+			CT.storage.clearSessionStart();
+		}
 
 		panel = new CT.Panel({
 			onRefresh: () => {
@@ -100,7 +117,7 @@
 
 		CT.bridge.on('ct:conversation', handleConversation);
 		CT.bridge.on('ct:message_limit', (ml) => applyUsage(CT.usage.fromMessageLimit(ml)));
-		CT.bridge.on('ct:generation_start', () => {});
+		CT.bridge.on('ct:generation_start', onGenerationStart);
 
 		window.addEventListener('ct:urlchange', onUrlMaybeChanged);
 		window.addEventListener('popstate', onUrlMaybeChanged);
@@ -189,9 +206,46 @@
 		if (!normalized) return;
 		CT.state.usage = normalized;
 		lastUsageMs = Date.now();
+		reconcileSessionStart();
+		rebuildUsageView();
 		panel.setUsage(normalized);
 		bottomBar.render();
 		checkWarnings();
+	}
+
+	// A message was sent → the rolling 5h session is (re)started. Record a local
+	// start time as the estimate fallback, unless the API already knows an exact,
+	// still-active session reset (exact always wins) or we're already inside an
+	// estimated session.
+	function onGenerationStart() {
+		const five = CT.state.usage?.five_hour;
+		const apiMs = five?.resets_at ? CT.time.toMs(five.resets_at) : null;
+		const now = Date.now();
+		if (apiMs != null && apiMs > now) return; // exact reset already known
+		const existing = CT.state.sessionStartedAt;
+		if (Number.isFinite(existing) && now - existing < CT.usage.SESSION_WINDOW_MS) return;
+		CT.state.sessionStartedAt = now;
+		CT.storage.setSessionStart(now);
+		rebuildUsageView();
+		bottomBar.render();
+		panel.renderOverview();
+	}
+
+	// Clear the local estimate once the API gives an exact reset, reports the
+	// session idle ("starts on send"), or the estimate window has elapsed.
+	function reconcileSessionStart() {
+		const s = CT.state.sessionStartedAt;
+		if (!Number.isFinite(s)) return;
+		const five = CT.state.usage?.five_hour;
+		const apiMs = five?.resets_at ? CT.time.toMs(five.resets_at) : null;
+		const now = Date.now();
+		const exactKnown = apiMs != null && apiMs > now;
+		const apiIdle = five && (five.utilization == null || five.utilization < 0.5);
+		const expired = now - s >= CT.usage.SESSION_WINDOW_MS;
+		if (exactKnown || apiIdle || expired) {
+			CT.state.sessionStartedAt = null;
+			CT.storage.clearSessionStart();
+		}
 	}
 
 	function handleConversation({ orgId, conversationId, data }) {
@@ -249,6 +303,13 @@
 		panel.tick();
 		bottomBar.tick();
 		const now = Date.now();
+		// Re-sync the local estimate + cached view roughly every 30s (countdown
+		// labels move slowly; the per-second cache clock is handled in the UIs).
+		if (now - lastReconcileMs >= 30000) {
+			lastReconcileMs = now;
+			reconcileSessionStart();
+			rebuildUsageView();
+		}
 		for (const ms of [panel.usageResetMs.five, panel.usageResetMs.seven]) {
 			if (ms && now >= ms && now - ms < 2000) refreshUsage();
 		}
