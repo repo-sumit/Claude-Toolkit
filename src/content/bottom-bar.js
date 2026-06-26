@@ -298,19 +298,20 @@
 		}
 
 		// ---- reset-text helpers ----
-		// Short visible reset string for the strip, scaled to the current mode.
-		// Never invents a countdown: returns '' when no reset time is known.
+		// Short visible reset string for the strip. Kept deliberately compact (no
+		// "resets in" / clock-label prefix) so it sits beside Context + the model
+		// pill without truncating — the verbose form lives in the tooltip and the
+		// details panel. Never invents a countdown: '' when no reset is known.
 		_resetInline(view, kind) {
 			const mode = this.mode;
 			if (mode === 'tiny') return ''; // tiny: percentages only
 			if (kind === 'session') {
-				if (view.status === 'not_started') return mode === 'wide' ? 'starts on send' : 'starts';
+				if (view.status === 'not_started') return mode === 'wide' || mode === 'mid' ? 'starts on send' : 'starts';
 				if (!view.resetCountdown) return '';
-				const cd = view.confidence === 'estimated' ? `~${view.resetCountdown}` : view.resetCountdown;
-				return mode === 'wide' ? `resets in ${cd}` : cd;
+				return view.confidence === 'estimated' ? `~${view.resetCountdown}` : view.resetCountdown;
 			}
-			// weekly: prefer the clock label when wide, the countdown when tight.
-			if (mode === 'wide') return view.resetLabel ? `resets ${view.resetLabel}` : view.resetCountdown ? `resets in ${view.resetCountdown}` : '';
+			// weekly: compact countdown (e.g. "3d 4h"); "Resets Sun 1:30 PM" shows
+			// on hover and in the panel.
 			return view.resetCountdown || view.resetLabel || '';
 		}
 
